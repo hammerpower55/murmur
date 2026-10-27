@@ -18,8 +18,9 @@ Build phases run in order. Each phase ends with its acceptance checks, one commi
 
 - Tauri 2, Rust edition 2021, React 18 + TypeScript + Vite, Tailwind CSS 4. Shaped like Handy (github.com/cjpais/Handy) so its code is a usable reference.
 - Speech: whisper-rs (whisper.cpp, CPU with NEON, no CUDA or OpenBLAS) for Whisper GGML; `ort` (ONNX Runtime 1.19+, prebuilt win-arm64, CPU EP) for Parakeet, Moonshine, SenseVoice. Vulkan and QNN are Phase 9 stretch goals, off by default.
-- Audio: cpal at device rate, resampled to 16 kHz mono f32 with rubato.
-- Hotkey: rdev (needs key up for push to talk). Do not use tauri-plugin-global-shortcut for the main hotkey.
+- Audio: cpal at device rate, resampled to 16 kHz mono f32 with rubato. The input stream is built at startup and kept paused between dictations (building takes 250 to 500 ms, play is instant); it is rebuilt when cpal reports the device changed.
+- Hotkey events are timestamped inside the hook. The state machine uses those timestamps, never the time the controller got to them.
+- Hotkey: our own `WH_KEYBOARD_LL` hook via the `windows` crate (`src-tauri/src/hotkey/listener.rs`), for key down and key up. Do not use tauri-plugin-global-shortcut for the main hotkey. Do not use rdev: its hook calls `AttachThreadInput` and `ToUnicodeEx` on every key, which stalls when the focused window is busy (Windows then skips the hook and the key leaks) and breaks dead keys. The hook proc must stay fast and never block; input Murmur injects is tagged with `MURMUR_INPUT_TAG` in `dwExtraInfo` so the hook ignores it.
 - Injection: arboard + enigo. Save clipboard, write text, Ctrl+V (Ctrl+Shift+V for terminals), wait 120 ms, restore clipboard.
 - Sounds: rodio playing bundled WAVs from `src-tauri/sounds`.
 - DB: rusqlite with `bundled`. Settings: tauri-plugin-store `settings.json`. Frontend state: zustand. Charts: recharts.
@@ -38,7 +39,7 @@ src-tauri/src/
   audio/        capture, resample, vad, levels
   engine/       mod.rs (SpeechEngine trait), whisper, parakeet, moonshine, sensevoice
   models/       catalog.rs + catalog.json, download, registry
-  hotkey/       listener (rdev), state (push to talk + toggle)
+  hotkey/       listener (WH_KEYBOARD_LL hook), state (push to talk + toggle)
   inject/       paste, focus
   text/         fillers, dictionary, snippets, format
   db/           schema, transcripts, stats
