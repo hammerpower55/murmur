@@ -1,0 +1,22 @@
+Murmur
+Copyright (c) 2026 Murmur contributors
+Licensed under the MIT License (see LICENSE).
+
+This project builds on the work of others:
+
+Handy (https://github.com/cjpais/Handy), MIT License, Copyright (c) CJ Pais.
+  Murmur follows Handy's architecture and adapts code from its transcribe-rs
+  crate for the Parakeet pipeline.
+
+whisper.cpp (https://github.com/ggml-org/whisper.cpp), MIT License, Copyright (c) Georgi Gerganov.
+whisper-rs (https://github.com/tazz4843/whisper-rs), Unlicense.
+ONNX Runtime (https://github.com/microsoft/onnxruntime), MIT License, Copyright (c) Microsoft Corporation.
+ort (https://github.com/pykeio/ort), MIT or Apache 2.0.
+
+Speech models are downloaded by the user and are not distributed with Murmur.
+Each is subject to its own licence:
+
+Whisper (OpenAI), MIT License. GGML conversions by Georgi Gerganov.
+Parakeet TDT 0.6B v2 and v3 (NVIDIA), CC BY 4.0. ONNX exports by istupakov.
+Moonshine (Useful Sensors), MIT License.
+SenseVoice Small (FunAudioLLM, Alibaba), FunASR Model License. ONNX export by the sherpa-onnx project (csukuangfj).

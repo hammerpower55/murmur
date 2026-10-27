@@ -1,0 +1,5 @@
+[build]
+target = "aarch64-pc-windows-msvc"
+
+[env]
+LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
