@@ -1,0 +1,13 @@
+# Fixture clips for the WER check: file<TAB>group<TAB>reference text.
+# Record with the dev app and MURMUR_FIXTURE_DIR set; clips are numbered in
+# the order you dictate them. Edit a sentence here if you said it differently.
+clip_01.wav	english	Please send the quarterly report to the finance team by Friday afternoon.
+clip_02.wav	english	I think we should move the launch to next week so the design team has more time.
+clip_03.wav	english	Can you check whether the invoice from last month was paid?
+clip_04.wav	english	The new dashboard loads much faster on my laptop than the old one did.
+clip_05.wav	english	Let's schedule a call with the client on Tuesday at three o'clock.
+clip_06.wav	mixed	Yaar kal meeting hai, can you send me the deck before lunch.
+clip_07.wav	mixed	Aaj office mein bohat kaam hai, main shaam ko call karta hoon.
+clip_08.wav	mixed	Bhai please yeh file jaldi bhej do, client wait kar raha hai.
+clip_09.wav	mixed	Mujhe lagta hai ke hum next week tak yeh feature release kar sakte hain.
+clip_10.wav	mixed	Kya tum ne email dekhi? Unhon ne budget approve kar diya hai.

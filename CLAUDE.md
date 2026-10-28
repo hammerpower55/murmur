@@ -27,6 +27,15 @@ Build phases run in order. Each phase ends with its acceptance checks, one commi
 - Packaging: NSIS arm64 installer `Murmur_<version>_arm64-setup.exe` plus portable zip.
 - Tests: `cargo test`, vitest. No end to end framework.
 - `.cargo/config.toml` pins the build target to aarch64 and sets `LIBCLANG_PATH`. LLVM `bin` must also be on PATH (some C deps call `clang` directly).
+- whisper.cpp refuses MSVC on ARM, so `.cargo/config.toml` also makes whisper-rs-sys build it with LLVM `clang-cl` through native ARM64 Ninja (winget `Ninja-build.Ninja`), adds back `/EHsc`, and forces `CMAKE_BUILD_TYPE=Release` so dev timings match release. cargo does not rebuild whisper-rs-sys when these change: `cargo clean -p whisper-rs-sys`.
+
+## Decisions made during the build (deviations from the spec, approved)
+
+- Default model is `ggml-large-v3-turbo-q8_0.bin` (models\whisper-large-v3-turbo-q8), not q5_0. ggml repacks Q8_0 weights for i8mm at load; Q5_0 has no repacked ARM kernel. q5_0 took 10 to 14 s for a 5 s clip on the X Plus, q8_0 takes about 4.5 s with the same accuracy. Measured RAM with q8_0 loaded: 1.28 GB working set, 1.75 GB private after a dictation.
+- Whisper always encodes its full 30 s window. Shrinking it with `audio_ctx` was 3x faster but garbled Roman Urdu and repeated sentences on real recordings. Do not reintroduce without rerunning the fixture WER check.
+- Whisper output that is just a run of three or more words copied from the initial prompt is dropped (it happens on silence).
+- Fixture clips: debug builds with `MURMUR_FIXTURE_DIR` set save each dictation as the next free `clip_NN.wav` and skip transcription. Release builds never write audio.
+- WER check: `cargo test fixture_wer -- --ignored --nocapture` (needs the model and `tests/audio`). Timings are only meaningful on AC power with the machine quiet; a rebuild in this OneDrive folder triggers OneDrive and Defender scans that slow it 2x.
 
 ## Architecture
 
@@ -84,7 +93,7 @@ The active model loads once at start (or on switch) and stays in memory; "Unload
 - `cargo clippy --target aarch64-pc-windows-msvc -- -D warnings` clean.
 - `cargo test` and `pnpm test` green at every commit.
 - No `unwrap()` outside tests. Errors surface in the UI as one line.
-- Idle: under 1% CPU, under 150 MB RAM with model unloaded; under 1.2 GB with whisper-large-v3-turbo-q5 loaded; never above 3 GB with any catalogue model.
+- Idle: under 1% CPU, under 150 MB RAM with model unloaded; under 1.2 GB with whisper-large-v3-turbo-q5 loaded (the q8_0 default measures 1.28 GB working set); never above 3 GB with any catalogue model.
 - Hotkey down to pill visible under 100 ms. Key up to pasted text under 3 s for a 10 s clip on the default model, under 1.5 s with Parakeet v2.
 - `tests/audio/` holds 10 reference clips (5 English, 5 English + Roman Urdu). Every engine change reruns them and prints WER.
 - Every screen handles its empty state with one line of copy.

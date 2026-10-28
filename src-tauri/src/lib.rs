@@ -1,6 +1,8 @@
 mod audio;
 mod dictation;
+mod engine;
 mod hotkey;
+mod paths;
 
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
@@ -13,6 +15,8 @@ pub fn run() {
                 .clear_targets()
                 .target(Target::new(TargetKind::Stdout))
                 .level(log::LevelFilter::Info)
+                // whisper.cpp logs every load step at info.
+                .level_for("whisper_rs", log::LevelFilter::Warn)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())

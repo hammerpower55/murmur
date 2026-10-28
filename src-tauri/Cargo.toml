@@ -30,6 +30,7 @@ anyhow = "1.0.104"
 log = "0.4.34"
 tauri-plugin-log = "2.10.1"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader"] }
+whisper-rs = { version = "0.16.0", features = ["log_backend"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -39,3 +40,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+hound = "3.5.1"

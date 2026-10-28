@@ -1,22 +1,34 @@
 //! Drives one dictation from hotkey to result: owns the state machine, the
-//! recorder and the hotkey listener, and runs on its own thread.
+//! recorder, the speech engine and the hotkey listener, and runs on its own
+//! thread.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use tauri::{AppHandle, Emitter};
 
-use crate::audio::capture::Recorder;
+use crate::audio::capture::{Recorder, Recording};
+use crate::engine::whisper::{
+    WhisperEngine, DEFAULT_MODEL_DIR, DEFAULT_MODEL_FILE, ROMAN_URDU_PROMPT,
+};
+use crate::engine::{has_arabic_script, EngineOptions, SpeechEngine};
 use crate::hotkey::listener::{self, Combo, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
+use crate::paths;
 
 /// Recordings shorter than this are discarded.
 const MIN_AUDIO_MS: u64 = 300;
 /// The toggle only hotkey is off by default. Becomes a setting in Phase 8.
 const TOGGLE_HOTKEY_ENABLED: bool = false;
+/// Language settings, fixed until Phase 8. Roman Urdu mixing (default on)
+/// forces English decoding so Urdu words stay in Latin script.
+const LANGUAGE: &str = "en";
+const ROMAN_URDU_MIXING: bool = true;
+
+type EngineResult = Result<Box<dyn SpeechEngine>>;
 
 pub fn spawn(app: AppHandle) -> Result<()> {
     let (tx, rx) = mpsc::channel();
@@ -29,6 +41,7 @@ pub fn spawn(app: AppHandle) -> Result<()> {
     );
 
     let recorder = Recorder::spawn()?;
+    let engine_rx = load_engine(&app)?;
     std::thread::Builder::new()
         .name("murmur-dictation".into())
         .spawn(move || {
@@ -40,11 +53,67 @@ pub fn spawn(app: AppHandle) -> Result<()> {
                 published: (State::Idle, None),
                 event_at: Instant::now(),
                 capture_started: None,
+                engine: None,
+                engine_rx: Some(engine_rx),
+                ignore_before: None,
             }
             .run(rx)
         })
         .context("could not start dictation thread")?;
     Ok(())
+}
+
+/// Loads the model on its own thread so the hotkey works while it loads.
+fn load_engine(app: &AppHandle) -> Result<Receiver<EngineResult>> {
+    let path = paths::models_dir(app)?
+        .join(DEFAULT_MODEL_DIR)
+        .join(DEFAULT_MODEL_FILE);
+    let opts = EngineOptions {
+        initial_prompt: ROMAN_URDU_MIXING.then(|| ROMAN_URDU_PROMPT.to_string()),
+        ..EngineOptions::default()
+    };
+    let (tx, rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("murmur-model-load".into())
+        .spawn(move || {
+            let started = Instant::now();
+            let mut engine = WhisperEngine::new();
+            let result = engine.load(&path, &opts).map(|()| {
+                log::info!(
+                    "model loaded in {} ms: {}, {} threads",
+                    started.elapsed().as_millis(),
+                    path.display(),
+                    opts.n_threads
+                );
+                Box::new(engine) as Box<dyn SpeechEngine>
+            });
+            let _ = tx.send(result);
+        })
+        .context("could not start model loading thread")?;
+    Ok(rx)
+}
+
+/// Debug builds only, and only with MURMUR_FIXTURE_DIR set: saves each
+/// dictation as the next free clip_NN.wav so test fixtures can be recorded by
+/// simply dictating. Release builds never write audio to disk. Returns true
+/// in fixture mode.
+#[cfg(debug_assertions)]
+fn save_fixture(rec: &Recording) -> bool {
+    let Some(dir) = std::env::var_os("MURMUR_FIXTURE_DIR") else {
+        return false;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    let path = (1..1000)
+        .map(|n| dir.join(format!("clip_{n:02}.wav")))
+        .find(|p| !p.exists());
+    match path {
+        Some(path) => match crate::audio::wav::write_16k_mono(&path, &rec.samples) {
+            Ok(()) => log::info!("fixture saved: {}", path.display()),
+            Err(err) => log::warn!("could not save fixture: {err:#}"),
+        },
+        None => log::warn!("fixture folder is full"),
+    }
+    true
 }
 
 struct Controller {
@@ -58,6 +127,13 @@ struct Controller {
     event_at: Instant,
     /// Key time of the event that started the current recording.
     capture_started: Option<Instant>,
+    engine: Option<Box<dyn SpeechEngine>>,
+    /// Delivers the engine once the background load finishes.
+    engine_rx: Option<Receiver<EngineResult>>,
+    /// Key events from before this instant happened while transcribing and
+    /// are dropped, so a press during Processing does not start a recording
+    /// late.
+    ignore_before: Option<Instant>,
 }
 
 impl Controller {
@@ -78,6 +154,7 @@ impl Controller {
             };
 
             match event {
+                Some((_, at)) if self.ignore_before.is_some_and(|t| at < t) => {}
                 Some((event, at)) => {
                     self.event_at = at;
                     // Only timers that expired before the key event happened.
@@ -144,9 +221,23 @@ impl Controller {
                         );
                         if ms < MIN_AUDIO_MS {
                             log::info!("too short, discarded");
-                            Some(Input::Discarded)
-                        } else {
-                            Some(Input::Finished)
+                            return Some(Input::Discarded);
+                        }
+                        // Recording fixtures skips transcription, so presses are
+                        // never dropped while a long transcription runs.
+                        #[cfg(debug_assertions)]
+                        if save_fixture(&rec) {
+                            return Some(Input::Finished);
+                        }
+                        let result = self.transcribe(&rec);
+                        self.ignore_before = Some(Instant::now());
+                        match result {
+                            Ok(true) => Some(Input::Finished),
+                            Ok(false) => Some(Input::Discarded),
+                            Err(err) => {
+                                log::error!("could not transcribe: {err:#}");
+                                Some(Input::Failed)
+                            }
                         }
                     }
                     Err(err) => {
@@ -161,6 +252,43 @@ impl Controller {
                 None
             }
         }
+    }
+
+    /// Runs the engine and prints the result. Returns false if nothing was
+    /// said. The text pipeline and pasting come in Phase 3.
+    fn transcribe(&mut self, rec: &Recording) -> Result<bool> {
+        let engine = self.engine()?;
+        let transcript = engine.transcribe(&rec.samples, Some(LANGUAGE))?;
+        let audio_ms = rec.duration_ms();
+        log::info!(
+            "{} transcribed {:.2} s of audio in {} ms ({:.2}x real time), language {}",
+            engine.id(),
+            audio_ms as f64 / 1000.0,
+            transcript.inference_ms,
+            transcript.inference_ms as f64 / audio_ms.max(1) as f64,
+            transcript.language.as_deref().unwrap_or("unknown")
+        );
+        if has_arabic_script(&transcript.text) {
+            log::warn!("transcript contains Arabic script");
+        }
+        log::info!("text: {}", transcript.text);
+        Ok(!transcript.text.trim().is_empty())
+    }
+
+    /// The loaded engine, waiting for the background load if it is still
+    /// running.
+    fn engine(&mut self) -> Result<&dyn SpeechEngine> {
+        if self.engine.is_none() {
+            if let Some(rx) = self.engine_rx.take() {
+                log::info!("waiting for the model to finish loading");
+                let engine = rx.recv().map_err(|_| anyhow!("model loading stopped"))??;
+                self.engine = Some(engine);
+            }
+        }
+        self.engine
+            .as_deref()
+            .filter(|e| e.is_loaded())
+            .context("no model loaded")
     }
 
     fn publish(&mut self) {

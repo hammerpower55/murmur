@@ -3,3 +3,15 @@ target = "aarch64-pc-windows-msvc"
 
 [env]
 LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+
+# whisper.cpp refuses MSVC on ARM ("MSVC is not supported for ARM, use
+# clang"), so whisper-rs-sys builds it with LLVM's clang-cl through Ninja.
+# whisper-rs-sys forwards every CMAKE_* variable to CMake.
+CMAKE_GENERATOR = "Ninja"
+CMAKE_C_COMPILER = 'C:/Program Files/LLVM/bin/clang-cl.exe'
+CMAKE_CXX_COMPILER = 'C:/Program Files/LLVM/bin/clang-cl.exe'
+# The cmake crate replaces CMake's default C++ flags, which drops /EHsc.
+CXXFLAGS_aarch64_pc_windows_msvc = "/EHsc"
+# Full optimisation even in dev builds (whisper-rs otherwise uses
+# RelWithDebInfo there, which limits inlining), so dev timings match release.
+CMAKE_BUILD_TYPE = "Release"
