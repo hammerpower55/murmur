@@ -1,3 +1,5 @@
+<img src="docs/brand/murmur-icon.svg" alt="" width="88">
+
 # Murmur
 
 Free, open source, fully offline voice dictation for Windows on ARM64 (Snapdragon X).

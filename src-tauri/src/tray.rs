@@ -1,6 +1,6 @@
 //! Tray icon (spec 6.10): Open Murmur, Start dictation, Pause hotkeys, a
-//! Model submenu with the installed models, and Quit. The icon gets a red dot
-//! while recording. The menu is rebuilt whenever models or state change.
+//! Model submenu with the installed models, and Quit. The mark's full stop
+//! turns red while recording. The menu is rebuilt whenever models or state change.
 
 use std::sync::Mutex;
 
@@ -27,28 +27,16 @@ pub struct Tray {
     showing_recording: Mutex<bool>,
 }
 
-/// The app icon with a red dot in the bottom right corner.
-pub fn recording_icon(base: &Image<'_>) -> Image<'static> {
-    let (w, h) = (base.width() as i64, base.height() as i64);
-    let mut rgba = base.rgba().to_vec();
-    let r = (w.min(h) as f64 * 0.24).max(2.0);
-    let (cx, cy) = (w as f64 - r - 0.5, h as f64 - r - 0.5);
-    for y in 0..h {
-        for x in 0..w {
-            let d = ((x as f64 + 0.5 - cx).powi(2) + (y as f64 + 0.5 - cy).powi(2)).sqrt();
-            // White ring so the dot reads on any taskbar colour.
-            let colour = if d <= r {
-                [0xEF, 0x44, 0x44, 0xFF]
-            } else if d <= r + 1.2 {
-                [0xFF, 0xFF, 0xFF, 0xFF]
-            } else {
-                continue;
-            };
-            let i = ((y * w + x) * 4) as usize;
-            rgba[i..i + 4].copy_from_slice(&colour);
-        }
-    }
-    Image::new_owned(rgba, w as u32, h as u32)
+/// The small cut of the mark, drawn for 16 to 32 px (docs/brand). While
+/// recording, its full stop turns red.
+const IDLE_PNG: &[u8] = include_bytes!("../icons/tray.png");
+const RECORDING_PNG: &[u8] = include_bytes!("../icons/tray-recording.png");
+
+fn icons() -> Result<(Image<'static>, Image<'static>)> {
+    let idle = Image::from_bytes(IDLE_PNG).context("tray icon is not a valid PNG")?;
+    let recording =
+        Image::from_bytes(RECORDING_PNG).context("recording tray icon is not a valid PNG")?;
+    Ok((idle.to_owned(), recording.to_owned()))
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -163,12 +151,7 @@ pub fn set_visible(app: &AppHandle, visible: bool) {
 }
 
 pub fn setup(app: &AppHandle, visible: bool) -> Result<()> {
-    let idle = app
-        .default_window_icon()
-        .context("app has no icon")?
-        .clone()
-        .to_owned();
-    let recording = recording_icon(&idle);
+    let (idle, recording) = icons()?;
     let icon = TrayIconBuilder::with_id("main")
         .icon(idle.clone())
         .tooltip(app.package_info().name.clone())
@@ -207,12 +190,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recording_icon_adds_a_red_dot_in_the_corner() {
-        let base = Image::new_owned(vec![0; 32 * 32 * 4], 32, 32);
-        let rec = recording_icon(&base);
-        let px = |x: usize, y: usize| &rec.rgba()[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4];
-        assert_eq!(px(25, 25), &[0xEF, 0x44, 0x44, 0xFF]);
-        assert_eq!(px(2, 2), &[0, 0, 0, 0]);
+    fn tray_icons_decode_and_only_the_recording_one_has_red() {
+        let (idle, rec) = icons().expect("icons decode");
+        assert_eq!((idle.width(), idle.height()), (32, 32));
         assert_eq!((rec.width(), rec.height()), (32, 32));
+        let reddish = |img: &Image<'_>| {
+            img.rgba()
+                .chunks(4)
+                .filter(|p| p[3] > 200 && p[0] > 200 && p[1] < 110 && p[2] < 110)
+                .count()
+        };
+        assert_eq!(reddish(&idle), 0);
+        assert!(reddish(&rec) > 10);
     }
 }

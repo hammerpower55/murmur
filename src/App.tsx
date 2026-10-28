@@ -7,7 +7,7 @@ import { Models } from "./app/Models";
 import { Onboarding } from "./app/Onboarding";
 import { Settings } from "./app/Settings";
 import { Snippets } from "./app/Snippets";
-import { Wave } from "./components/Wave";
+import { Mark } from "./components/Mark";
 import { api } from "./lib/api";
 import { APP_NAME } from "./lib/app";
 import { subscribeDictation, useDictation } from "./store/dictation";
@@ -45,7 +45,7 @@ function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
   return (
     <nav className="flex w-56 shrink-0 flex-col border-r border-white/6 bg-zinc-950/40 px-4 py-6">
       <span className="flex items-center gap-3 px-3 pb-7 font-display text-[1.25rem] leading-none text-zinc-50">
-        <Wave activity={activity} />
+        <Mark activity={activity} className="h-3.5 w-auto shrink-0 text-zinc-100" />
         {APP_NAME}
       </span>
       <div ref={list} className="relative flex flex-col gap-1">
