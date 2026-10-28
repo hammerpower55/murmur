@@ -1,5 +1,6 @@
 mod audio;
 mod commands;
+mod db;
 mod dictation;
 mod engine;
 mod hotkey;
@@ -12,10 +13,12 @@ mod sound;
 mod text;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_log::{Target, TargetKind};
 
+use db::Db;
 use engine::host::EngineHost;
 use models::manager::ModelManager;
 
@@ -62,6 +65,11 @@ pub fn run() {
             commands::finish_onboarding,
             commands::check_microphone,
             commands::open_microphone_settings,
+            commands::list_transcripts,
+            commands::delete_transcript,
+            commands::clear_history,
+            commands::home_summary,
+            commands::app_icon,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -77,7 +85,10 @@ pub fn run() {
             models.load_at_startup();
             app.manage(models);
 
-            dictation::spawn(handle, host)?;
+            let db = Arc::new(Db::open(&paths::data_dir(&handle)?.join(db::FILE))?);
+            app.manage(db.clone());
+
+            dictation::spawn(handle.clone(), host, db, paths::icons_dir(&handle)?)?;
             Ok(())
         })
         .run(tauri::generate_context!());

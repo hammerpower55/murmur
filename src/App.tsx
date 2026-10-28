@@ -1,15 +1,22 @@
 import { useEffect, useState } from "react";
+import { History } from "./app/History";
+import { Home } from "./app/Home";
 import { Models } from "./app/Models";
 import { Onboarding } from "./app/Onboarding";
+import { Settings } from "./app/Settings";
 import { api } from "./lib/api";
 import { APP_NAME } from "./lib/app";
 import { subscribeModels } from "./store/models";
 
-type Screen = "loading" | "onboarding" | "models";
+type Page = "home" | "history" | "models" | "settings";
+type Screen = "loading" | "onboarding" | Page;
 
 /** Pages are added to this list as later phases build them. */
-const NAV: { id: Exclude<Screen, "loading" | "onboarding">; label: string }[] = [
+const NAV: { id: Page; label: string }[] = [
+  { id: "home", label: "Home" },
+  { id: "history", label: "History" },
   { id: "models", label: "Models" },
+  { id: "settings", label: "Settings" },
 ];
 
 function App() {
@@ -19,20 +26,20 @@ function App() {
     subscribeModels();
     api
       .onboardingNeeded()
-      .then((needed) => setScreen(needed ? "onboarding" : "models"))
-      .catch(() => setScreen("models"));
+      .then((needed) => setScreen(needed ? "onboarding" : "home"))
+      .catch(() => setScreen("home"));
   }, []);
 
-  const leaveOnboarding = () => {
+  const leaveOnboarding = (to: Page) => {
     void api.finishOnboarding();
-    setScreen("models");
+    setScreen(to);
   };
 
   if (screen === "loading") return <main className="h-full" />;
   if (screen === "onboarding") {
     return (
       <main className="h-full overflow-y-auto">
-        <Onboarding onDone={leaveOnboarding} onSeeAllModels={leaveOnboarding} />
+        <Onboarding onDone={() => leaveOnboarding("home")} onSeeAllModels={() => leaveOnboarding("models")} />
       </main>
     );
   }
@@ -53,7 +60,12 @@ function App() {
           </button>
         ))}
       </nav>
-      <main className="min-w-0 flex-1 overflow-y-auto">{screen === "models" && <Models />}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto">
+        {screen === "home" && <Home onSeeHistory={() => setScreen("history")} />}
+        {screen === "history" && <History />}
+        {screen === "models" && <Models />}
+        {screen === "settings" && <Settings />}
+      </main>
     </div>
   );
 }

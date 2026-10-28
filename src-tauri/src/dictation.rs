@@ -2,6 +2,7 @@
 //! recorder, the speech engine and the hotkey listener, and runs on its own
 //! thread.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
@@ -11,11 +12,13 @@ use anyhow::{Context, Result};
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::capture::{Recorder, Recording};
-use crate::engine::has_arabic_script;
+use crate::db::transcripts::NewTranscript;
+use crate::db::Db;
 use crate::engine::host::EngineHost;
+use crate::engine::{has_arabic_script, Transcript};
 use crate::hotkey::listener::{self, Combo, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
-use crate::inject::{focus, paste};
+use crate::inject::{focus, icons, paste};
 use crate::overlay::events::{Overlay, Phase};
 use crate::settings::{LANGUAGE, ROMAN_URDU_MIXING};
 use crate::sound::player::{Cue, SoundPlayer};
@@ -32,7 +35,12 @@ const SOUNDS_MUTED: bool = false;
 /// Capture starts this long after the start cue begins playing (spec 6.5).
 const START_CUE_LEAD: Duration = Duration::from_millis(60);
 
-pub fn spawn(app: AppHandle, engine: Arc<EngineHost>) -> Result<()> {
+pub fn spawn(
+    app: AppHandle,
+    engine: Arc<EngineHost>,
+    db: Arc<Db>,
+    icons_dir: PathBuf,
+) -> Result<()> {
     let (tx, rx) = mpsc::channel();
     let recording = Arc::new(AtomicBool::new(false));
     listener::spawn(
@@ -60,6 +68,8 @@ pub fn spawn(app: AppHandle, engine: Arc<EngineHost>) -> Result<()> {
                 event_at: Instant::now(),
                 capture_started: None,
                 engine,
+                db,
+                icons_dir,
                 ignore_before: None,
                 // Dictionary, snippets and toggles load from settings in Phase 8.
                 text: TextSettings {
@@ -111,6 +121,8 @@ struct Controller {
     capture_started: Option<Instant>,
     /// The active model; swapped from the Models page without a restart.
     engine: Arc<EngineHost>,
+    db: Arc<Db>,
+    icons_dir: PathBuf,
     /// Key events from before this instant happened while transcribing and
     /// are dropped, so a press during Processing does not start a recording
     /// late.
@@ -258,7 +270,8 @@ impl Controller {
     /// focus when the hotkey was released. Returns false if nothing was said.
     fn dictate(&mut self, rec: &Recording) -> Result<bool> {
         let target = focus::foreground();
-        let raw = self.transcribe(rec)?;
+        let (model, transcript) = self.transcribe(rec)?;
+        let raw = transcript.text.clone();
         if raw.trim().is_empty() {
             return Ok(false);
         }
@@ -283,7 +296,10 @@ impl Controller {
         }
 
         let started = Instant::now();
-        paste::paste(&text, &target)?;
+        let pasted = paste::paste(&text, &target);
+        // Saved even if pasting failed, so the text can be copied from History.
+        self.record(rec, &model, &transcript, &raw, text.trim(), &target);
+        pasted?;
         log::info!(
             "pasted {} chars into {} in {} ms{}",
             text.chars().count(),
@@ -302,8 +318,54 @@ impl Controller {
         Ok(true)
     }
 
-    /// Runs the engine and returns its raw text.
-    fn transcribe(&mut self, rec: &Recording) -> Result<String> {
+    /// Writes the transcript row (spec 5.2 step 8), tells the UI, and saves
+    /// the app's icon the first time Murmur sees that app. Failures are
+    /// logged: history must never break dictation.
+    fn record(
+        &self,
+        rec: &Recording,
+        model: &str,
+        transcript: &Transcript,
+        raw: &str,
+        final_text: &str,
+        target: &focus::FocusedApp,
+    ) {
+        let row = NewTranscript {
+            created_at: chrono::Local::now().naive_local(),
+            raw_text: raw.to_string(),
+            final_text: final_text.to_string(),
+            audio_ms: rec.duration_ms(),
+            inference_ms: transcript.inference_ms,
+            model_id: model.to_string(),
+            language: transcript
+                .language
+                .clone()
+                .or_else(|| Some(LANGUAGE.to_string())),
+            app_name: (!target.exe.is_empty()).then(|| target.exe.clone()),
+            app_title: (!target.title.is_empty()).then(|| target.title.clone()),
+        };
+        match self.db.insert_transcript(&row) {
+            Ok(id) => {
+                let _ = self.app.emit("transcript-added", id);
+            }
+            Err(err) => log::error!("could not save the transcript: {err:#}"),
+        }
+        if !target.exe.is_empty() {
+            let (dir, exe, path) = (
+                self.icons_dir.clone(),
+                target.exe.clone(),
+                target.exe_path.clone(),
+            );
+            std::thread::spawn(move || {
+                if let Err(err) = icons::ensure_saved(&dir, &exe, &path) {
+                    log::debug!("no icon for {exe}: {err:#}");
+                }
+            });
+        }
+    }
+
+    /// Runs the active engine. Returns the model id and its transcript.
+    fn transcribe(&mut self, rec: &Recording) -> Result<(String, Transcript)> {
         let (model, transcript) = self.engine.transcribe(&rec.samples, Some(LANGUAGE))?;
         let audio_ms = rec.duration_ms();
         log::info!(
@@ -318,7 +380,7 @@ impl Controller {
             log::warn!("transcript contains Arabic script");
         }
         log::info!("raw text: {}", transcript.text);
-        Ok(transcript.text)
+        Ok((model, transcript))
     }
 
     fn publish(&mut self) {

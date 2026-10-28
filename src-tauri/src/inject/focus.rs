@@ -13,6 +13,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub struct FocusedApp {
     /// Executable file name, e.g. "Code.exe". Empty if it could not be read.
     pub exe: String,
+    /// Full path of the executable, for its icon.
+    pub exe_path: String,
     pub title: String,
 }
 
@@ -61,8 +63,10 @@ pub fn foreground() -> FocusedApp {
         if hwnd.0.is_null() {
             return FocusedApp::default();
         }
+        let exe_path = exe_path(hwnd).unwrap_or_default();
         FocusedApp {
-            exe: exe_name(hwnd).unwrap_or_default(),
+            exe: exe_path.rsplit('\\').next().unwrap_or_default().to_string(),
+            exe_path,
             title: window_title(hwnd),
         }
     }
@@ -74,7 +78,7 @@ unsafe fn window_title(hwnd: HWND) -> String {
     String::from_utf16_lossy(&buf[..len.max(0) as usize])
 }
 
-unsafe fn exe_name(hwnd: HWND) -> Option<String> {
+unsafe fn exe_path(hwnd: HWND) -> Option<String> {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     if pid == 0 {
@@ -95,8 +99,7 @@ unsafe fn exe_name(hwnd: HWND) -> Option<String> {
         let _ = CloseHandle(process);
     }
     result.ok()?;
-    let path = String::from_utf16_lossy(&buf[..len as usize]);
-    path.rsplit('\\').next().map(String::from)
+    Some(String::from_utf16_lossy(&buf[..len as usize]))
 }
 
 #[cfg(test)]
@@ -106,6 +109,7 @@ mod tests {
     fn app(exe: &str, title: &str) -> FocusedApp {
         FocusedApp {
             exe: exe.into(),
+            exe_path: String::new(),
             title: title.into(),
         }
     }

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatRam, percent, supportsLanguage } from "./format";
+import {
+  appLabel,
+  formatBytes,
+  formatDuration,
+  formatRam,
+  formatWhen,
+  percent,
+  plural,
+  supportsLanguage,
+} from "./format";
 
 describe("formatBytes", () => {
   it("matches the sizes Windows shows", () => {
@@ -32,5 +41,37 @@ describe("supportsLanguage", () => {
     expect(supportsLanguage(["*"], "ur")).toBe(true);
     expect(supportsLanguage(["en"], "ur")).toBe(false);
     expect(supportsLanguage(["en"], "")).toBe(true);
+  });
+});
+
+describe("formatWhen", () => {
+  const now = new Date(2026, 9, 28, 15, 0);
+  it("shows only the time today", () => {
+    expect(formatWhen("2026-10-28T14:05:00", now)).toBe("2:05 PM");
+  });
+  it("says yesterday", () => {
+    expect(formatWhen("2026-10-27T09:30:00", now)).toBe("Yesterday, 9:30 AM");
+  });
+  it("shows the date further back", () => {
+    expect(formatWhen("2026-10-20T18:00:00", now)).toBe("20 Oct, 6:00 PM");
+  });
+});
+
+describe("formatDuration", () => {
+  it("uses seconds under a minute", () => {
+    expect(formatDuration(4200)).toBe("4.2 s");
+    expect(formatDuration(65_000)).toBe("1 min 5 s");
+    expect(formatDuration(120_000)).toBe("2 min");
+  });
+});
+
+describe("appLabel and plural", () => {
+  it("drops .exe and handles unknown apps", () => {
+    expect(appLabel("Code.exe")).toBe("Code");
+    expect(appLabel(null)).toBe("Unknown app");
+  });
+  it("pluralises with thousands separators", () => {
+    expect(plural(1, "word", "words")).toBe("1 word");
+    expect(plural(1234, "word", "words")).toBe("1,234 words");
   });
 });

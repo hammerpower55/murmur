@@ -6,8 +6,12 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::db::stats::HomeSummary;
+use crate::db::transcripts::TranscriptRow;
+use crate::db::Db;
+use crate::inject::icons;
 use crate::models::manager::{ModelManager, ModelsView};
-use crate::settings;
+use crate::{paths, settings};
 
 type Models<'a> = State<'a, Arc<ModelManager>>;
 
@@ -74,4 +78,39 @@ pub fn open_microphone_settings(app: AppHandle) -> Result<(), String> {
     app.opener()
         .open_url("ms-settings:privacy-microphone", None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+type History<'a> = State<'a, Arc<Db>>;
+
+#[tauri::command]
+pub fn list_transcripts(
+    db: History,
+    query: String,
+    limit: u32,
+    offset: u32,
+) -> Result<Vec<TranscriptRow>, String> {
+    db.list_transcripts(&query, limit.min(500), offset)
+        .map_err(line)
+}
+
+#[tauri::command]
+pub fn delete_transcript(db: History, id: i64) -> Result<bool, String> {
+    db.delete_transcript(id).map_err(line)
+}
+
+#[tauri::command]
+pub fn clear_history(db: History) -> Result<(), String> {
+    db.clear_history().map_err(line)
+}
+
+#[tauri::command]
+pub fn home_summary(db: History) -> Result<HomeSummary, String> {
+    db.home_summary(chrono::Local::now().date_naive())
+        .map_err(line)
+}
+
+/// The app's icon as a data URL, if Murmur has saved one.
+#[tauri::command]
+pub fn app_icon(app: AppHandle, app_name: String) -> Option<String> {
+    icons::data_url(&paths::icons_dir(&app).ok()?, &app_name)
 }
