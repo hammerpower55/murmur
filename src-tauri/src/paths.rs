@@ -18,3 +18,14 @@ pub fn data_dir_named(app_name: &str) -> Result<PathBuf> {
 pub fn models_dir(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("models"))
 }
+
+/// productName from tauri.conf.json, for tests that have no AppHandle.
+#[cfg(test)]
+pub fn product_name() -> String {
+    let conf = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json"),
+    )
+    .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&conf).unwrap();
+    json["productName"].as_str().unwrap().to_string()
+}

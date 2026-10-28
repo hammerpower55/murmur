@@ -1,0 +1,428 @@
+//! Model downloads: the only network traffic Murmur makes, and only after
+//! the user clicks Download. Each file downloads to name.part, resumes from
+//! where it stopped with an HTTP Range request, and is only renamed into
+//! place once its hash matches the catalogue.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, bail, Context, Result};
+use sha1::Sha1;
+use sha2::{Digest, Sha256};
+
+use super::catalog::{CatalogModel, ModelFile};
+
+/// Returned (inside anyhow) when the user cancels. Partial files stay so the
+/// next attempt resumes.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("download cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+pub fn is_cancelled(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<Cancelled>().is_some()
+}
+
+/// How often progress is reported.
+const PROGRESS_EVERY: Duration = Duration::from_millis(150);
+
+/// Downloads every missing file of `model` into `dir`. `on_progress` gets
+/// (bytes done, total bytes) across the whole model.
+pub fn download_model(
+    model: &CatalogModel,
+    dir: &Path,
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(u64, u64),
+) -> Result<()> {
+    fs::create_dir_all(dir).with_context(|| format!("could not create {}", dir.display()))?;
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(20))
+        // For the blocking client this limits each read or write, not the
+        // whole download: big files on slow links are fine, a stall fails.
+        .timeout(Duration::from_secs(60))
+        .build()
+        .context("could not start the downloader")?;
+
+    let total = model.size();
+    let mut done_before = 0u64;
+    for file in &model.files {
+        let target = dir.join(&file.name);
+        if file_complete(&target, file) {
+            done_before += file.size;
+            on_progress(done_before, total);
+            continue;
+        }
+        download_file(&client, file, &target, cancel, |bytes| {
+            on_progress(done_before + bytes, total)
+        })?;
+        done_before += file.size;
+    }
+    on_progress(total, total);
+    Ok(())
+}
+
+/// A finished file: present with the catalogue size. Hashes are checked
+/// when a download finishes, not on every start.
+pub fn file_complete(path: &Path, file: &ModelFile) -> bool {
+    fs::metadata(path).is_ok_and(|m| m.len() == file.size)
+}
+
+fn part_path(target: &Path) -> PathBuf {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(".part");
+    target.with_file_name(name)
+}
+
+fn download_file(
+    client: &reqwest::blocking::Client,
+    file: &ModelFile,
+    target: &Path,
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(u64),
+) -> Result<()> {
+    let part = part_path(target);
+    let mut have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+    if have > file.size {
+        fs::remove_file(&part).ok();
+        have = 0;
+    }
+
+    if have < file.size {
+        let mut request = client.get(&file.url);
+        if have > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
+        }
+        let mut response = request
+            .send()
+            .with_context(|| format!("could not reach {}", host(&file.url)))?;
+        let status = response.status();
+        let append = match status.as_u16() {
+            206 => true,
+            200 => {
+                // The server ignored the range: start over.
+                have = 0;
+                false
+            }
+            416 => bail!("the server refused to resume {}", file.name),
+            _ => bail!(
+                "download of {} failed with HTTP {}",
+                file.name,
+                status.as_u16()
+            ),
+        };
+
+        let mut out = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(append)
+            .truncate(!append)
+            .open(&part)
+            .with_context(|| format!("could not write {}", part.display()))?;
+
+        let mut buf = vec![0u8; 256 * 1024];
+        let mut last_report = Instant::now();
+        on_progress(have);
+        loop {
+            if cancel.load(Ordering::SeqCst) {
+                out.flush().ok();
+                return Err(Cancelled.into());
+            }
+            let n = response
+                .read(&mut buf)
+                .with_context(|| format!("connection lost while downloading {}", file.name))?;
+            if n == 0 {
+                break;
+            }
+            out.write_all(&buf[..n])
+                .with_context(|| format!("could not write {}", part.display()))?;
+            have += n as u64;
+            if last_report.elapsed() >= PROGRESS_EVERY {
+                on_progress(have);
+                last_report = Instant::now();
+            }
+        }
+        out.flush()?;
+        on_progress(have);
+    }
+
+    if have != file.size {
+        bail!(
+            "{} is {} bytes, expected {}; try again",
+            file.name,
+            have,
+            file.size
+        );
+    }
+    if !hash_matches(&part, file)? {
+        fs::remove_file(&part).ok();
+        bail!("{} failed its integrity check; try again", file.name);
+    }
+    fs::rename(&part, target).with_context(|| format!("could not finish {}", file.name))?;
+    Ok(())
+}
+
+fn hash_matches(path: &Path, file: &ModelFile) -> Result<bool> {
+    let mut f = File::open(path)?;
+    let mut buf = vec![0u8; 1024 * 1024];
+    if let Some(expected) = &file.sha256 {
+        let mut h = Sha256::new();
+        loop {
+            let n = f.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+        }
+        return Ok(hex::encode(h.finalize()) == expected.to_lowercase());
+    }
+    if let Some(expected) = &file.git_sha1 {
+        // git hashes "blob <size>\0" followed by the content.
+        let mut h = Sha1::new();
+        h.update(format!("blob {}\0", file.size).as_bytes());
+        loop {
+            let n = f.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+        }
+        return Ok(hex::encode(h.finalize()) == expected.to_lowercase());
+    }
+    Err(anyhow!("{} has no hash in the catalogue", file.name))
+}
+
+fn host(url: &str) -> &str {
+    url.split("://")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::catalog::Family;
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    /// A tiny HTTP server for one body that honours Range requests. With
+    /// `slow`, it streams in small chunks like a real connection.
+    fn serve(body: Vec<u8>, honour_range: bool) -> String {
+        serve_with(body, honour_range, false)
+    }
+
+    fn serve_with(body: Vec<u8>, honour_range: bool, slow: bool) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = Arc::new(body);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let body = body.clone();
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut start = 0usize;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                            break;
+                        }
+                        if let Some(r) = line.to_lowercase().strip_prefix("range: bytes=") {
+                            start = r.trim().trim_end_matches('-').parse().unwrap();
+                        }
+                    }
+                    let mut stream = stream;
+                    let (status, slice) = if honour_range && start > 0 {
+                        ("206 Partial Content", &body[start..])
+                    } else {
+                        ("200 OK", &body[..])
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        slice.len()
+                    );
+                    if slow {
+                        for chunk in slice.chunks(64 * 1024) {
+                            if stream.write_all(chunk).is_err() {
+                                return;
+                            }
+                            std::thread::sleep(Duration::from_millis(15));
+                        }
+                    } else {
+                        let _ = stream.write_all(slice);
+                    }
+                });
+            }
+        });
+        format!("http://{addr}/model.bin")
+    }
+
+    fn model_for(url: &str, body: &[u8]) -> CatalogModel {
+        CatalogModel {
+            id: "test".into(),
+            name: "Test".into(),
+            family: Family::Whisper,
+            accuracy: 1,
+            speed: 1,
+            languages: vec!["*".into()],
+            languages_label: String::new(),
+            ram_mb: 1,
+            default: false,
+            note: None,
+            files: vec![ModelFile {
+                name: "model.bin".into(),
+                url: url.into(),
+                size: body.len() as u64,
+                sha256: Some(hex::encode(Sha256::digest(body))),
+                git_sha1: None,
+            }],
+        }
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("murmur-dl-{name}-{}", std::process::id()));
+        fs::remove_dir_all(&dir).ok();
+        dir
+    }
+
+    fn body(len: usize) -> Vec<u8> {
+        (0..len).map(|i| (i * 31 % 251) as u8).collect()
+    }
+
+    #[test]
+    fn downloads_and_verifies() {
+        let data = body(3_000_000);
+        let model = model_for(&serve(data.clone(), true), &data);
+        let dir = temp_dir("ok");
+        let mut last = (0, 0);
+        download_model(&model, &dir, &AtomicBool::new(false), |d, t| last = (d, t)).unwrap();
+        assert_eq!(fs::read(dir.join("model.bin")).unwrap(), data);
+        assert!(!dir.join("model.bin.part").exists());
+        assert_eq!(last, (data.len() as u64, data.len() as u64));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn cancel_keeps_the_part_file_and_the_next_run_resumes() {
+        let data = body(4_000_000);
+        let model = model_for(&serve_with(data.clone(), true, true), &data);
+        let dir = temp_dir("resume");
+        let cancel = AtomicBool::new(false);
+        let err = download_model(&model, &dir, &cancel, |done, _| {
+            if done > 1_000_000 {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        })
+        .unwrap_err();
+        assert!(is_cancelled(&err));
+        let partial = fs::metadata(dir.join("model.bin.part")).unwrap().len();
+        assert!(partial > 0 && partial < data.len() as u64, "{partial}");
+
+        let mut first_report = None;
+        download_model(&model, &dir, &AtomicBool::new(false), |d, _| {
+            first_report.get_or_insert(d);
+        })
+        .unwrap();
+        // Resumed from the partial file, not from zero.
+        assert_eq!(first_report, Some(partial));
+        assert_eq!(fs::read(dir.join("model.bin")).unwrap(), data);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn server_without_range_support_restarts_cleanly() {
+        let data = body(500_000);
+        let model = model_for(&serve(data.clone(), false), &data);
+        let dir = temp_dir("norange");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("model.bin.part"), &data[..1000]).unwrap();
+        download_model(&model, &dir, &AtomicBool::new(false), |_, _| {}).unwrap();
+        assert_eq!(fs::read(dir.join("model.bin")).unwrap(), data);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn corrupt_download_is_rejected_and_removed() {
+        let data = body(200_000);
+        let mut model = model_for(&serve(data.clone(), true), &data);
+        model.files[0].sha256 = Some("0".repeat(64));
+        let dir = temp_dir("bad");
+        let err = download_model(&model, &dir, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        assert!(err.to_string().contains("integrity"), "{err}");
+        assert!(!dir.join("model.bin").exists());
+        assert!(!dir.join("model.bin.part").exists());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn complete_files_are_skipped() {
+        let data = body(1000);
+        // Nothing listens here: any request would fail.
+        let model = model_for("http://127.0.0.1:9/model.bin", &data);
+        let dir = temp_dir("skip");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("model.bin"), &data).unwrap();
+        download_model(&model, &dir, &AtomicBool::new(false), |_, _| {}).unwrap();
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Downloads a real catalogue model into the user's models folder with
+    /// the real downloader. Skipped by default:
+    ///   MURMUR_FETCH=parakeet-tdt-0.6b-v2 cargo test fetch_real_model -- --ignored --nocapture
+    #[test]
+    #[ignore = "downloads hundreds of MB from Hugging Face"]
+    fn fetch_real_model() {
+        let id = std::env::var("MURMUR_FETCH").expect("set MURMUR_FETCH to a model id");
+        let model = crate::models::catalog::find(&id).expect("unknown model id");
+        let dir = crate::paths::data_dir_named(&crate::paths::product_name())
+            .unwrap()
+            .join("models")
+            .join(&id);
+        let started = Instant::now();
+        let mut last = Instant::now();
+        download_model(&model, &dir, &AtomicBool::new(false), |done, total| {
+            if last.elapsed() > Duration::from_secs(5) || done == total {
+                println!(
+                    "{:>6.1}% of {} MB",
+                    done as f64 * 100.0 / total as f64,
+                    total / 1_000_000
+                );
+                last = Instant::now();
+            }
+        })
+        .unwrap();
+        println!(
+            "done in {} s: {}",
+            started.elapsed().as_secs(),
+            dir.display()
+        );
+    }
+
+    #[test]
+    fn git_sha1_matches_git() {
+        // `git hash-object` of "hello\n" is ce013625030ba8dba906f756967f9e9ca394464a.
+        let dir = temp_dir("gitsha");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("v.txt");
+        fs::write(&path, b"hello\n").unwrap();
+        let file = ModelFile {
+            name: "v.txt".into(),
+            url: String::new(),
+            size: 6,
+            sha256: None,
+            git_sha1: Some("ce013625030ba8dba906f756967f9e9ca394464a".into()),
+        };
+        assert!(hash_matches(&path, &file).unwrap());
+        fs::remove_dir_all(&dir).ok();
+    }
+}

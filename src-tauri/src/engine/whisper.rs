@@ -17,16 +17,6 @@ use whisper_rs::{
 use super::{EngineOptions, Segment, SpeechEngine, Transcript};
 use crate::audio::TARGET_RATE;
 
-/// Phase 2 loads one fixed model from models\<dir>\<file>. The catalogue and
-/// switching come in Phase 5.
-///
-/// Q8_0, not the spec's Q5_0: ggml repacks Q8_0 weights at load time for the
-/// Snapdragon's int8 matrix instructions (i8mm), while Q5_0 has no repacked
-/// kernel. On the X Plus that took a 5 s clip from 10 to 14 s down to about
-/// 4.5 s with the same accuracy.
-pub const DEFAULT_MODEL_DIR: &str = "whisper-large-v3-turbo-q8";
-pub const DEFAULT_MODEL_FILE: &str = "ggml-large-v3-turbo-q8_0.bin";
-
 /// Primes the decoder so Urdu words come out in Latin script. Tune here.
 pub const ROMAN_URDU_PROMPT: &str = "Acha theek hai, main abhi check karta hoon aur aapko bata deta hoon. Okay, let me check and get back to you.";
 

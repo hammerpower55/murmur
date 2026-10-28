@@ -4,13 +4,18 @@
 //!
 //!   cargo test fixture_wer -- --ignored --nocapture
 //!
-//! MURMUR_FIXTURES overrides the clip folder, MURMUR_MODEL the model file.
+//! MURMUR_MODEL_ID picks a catalogue model (default: the catalogue default),
+//! MURMUR_FIXTURES overrides the clip folder.
 
 use std::path::{Path, PathBuf};
 
-use super::whisper::{WhisperEngine, DEFAULT_MODEL_DIR, DEFAULT_MODEL_FILE, ROMAN_URDU_PROMPT};
-use super::{has_arabic_script, EngineOptions, SpeechEngine};
+use super::parakeet::{self, ParakeetEngine};
+use super::whisper::WhisperEngine;
+use super::{has_arabic_script, SpeechEngine};
 use crate::audio::resample;
+use crate::models::catalog::{self, Family};
+use crate::models::manager::options_for;
+use crate::models::registry::Registry;
 
 /// Lowercase words with punctuation removed. Apostrophes inside words stay,
 /// so "let's" is one word.
@@ -69,14 +74,6 @@ fn read_wav(path: &Path) -> (Vec<f32>, u32) {
     (mono, spec.sample_rate)
 }
 
-fn product_name() -> String {
-    let conf =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json"))
-            .unwrap();
-    let json: serde_json::Value = serde_json::from_str(&conf).unwrap();
-    json["productName"].as_str().unwrap().to_string()
-}
-
 struct Reference {
     file: String,
     group: String,
@@ -107,25 +104,28 @@ fn fixture_wer() {
     let dir = std::env::var_os("MURMUR_FIXTURES")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/audio"));
-    let model = std::env::var_os("MURMUR_MODEL")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            crate::paths::data_dir_named(&product_name())
-                .unwrap()
-                .join("models")
-                .join(DEFAULT_MODEL_DIR)
-                .join(DEFAULT_MODEL_FILE)
-        });
-
-    let mut engine = WhisperEngine::new();
-    let opts = EngineOptions {
-        initial_prompt: Some(ROMAN_URDU_PROMPT.to_string()),
-        ..EngineOptions::default()
+    let id =
+        std::env::var("MURMUR_MODEL_ID").unwrap_or_else(|_| catalog::default_model().unwrap().id);
+    let models_dir = crate::paths::data_dir_named(&crate::paths::product_name())
+        .unwrap()
+        .join("models");
+    let spec = Registry::new(models_dir).resolve(&id).unwrap();
+    let opts = options_for(spec.family);
+    let mut engine: Box<dyn SpeechEngine> = match spec.family {
+        Family::Whisper => Box::new(WhisperEngine::new()),
+        Family::Parakeet => {
+            parakeet::set_runtime_path(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"),
+            );
+            Box::new(ParakeetEngine::new())
+        }
     };
-    engine.load(&model, &opts).unwrap();
+    let loading = std::time::Instant::now();
+    engine.load(&spec.path, &opts).unwrap();
     println!(
-        "\nmodel {} with {} threads\n",
-        model.display(),
+        "\nmodel {id} loaded in {} ms, {} threads\n",
+        loading.elapsed().as_millis(),
         opts.n_threads
     );
 

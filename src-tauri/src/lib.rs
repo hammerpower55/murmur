@@ -1,15 +1,42 @@
 mod audio;
+mod commands;
 mod dictation;
 mod engine;
 mod hotkey;
 mod inject;
+mod models;
 mod overlay;
 mod paths;
+mod settings;
 mod sound;
 mod text;
 
-use tauri::Manager;
+use std::path::PathBuf;
+
+use tauri::{AppHandle, Manager};
 use tauri_plugin_log::{Target, TargetKind};
+
+use engine::host::EngineHost;
+use models::manager::ModelManager;
+
+/// onnxruntime.dll ships next to the app as a bundle resource. Dev builds
+/// fall back to the copy scripts/fetch_onnxruntime.ps1 puts in vendor/.
+fn onnxruntime_path(app: &AppHandle) -> PathBuf {
+    let bundled = app
+        .path()
+        .resource_dir()
+        .map(|dir| dir.join("onnxruntime.dll"))
+        .ok()
+        .filter(|p| p.is_file());
+    #[cfg(debug_assertions)]
+    let bundled = bundled.or_else(|| {
+        Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"),
+        )
+    });
+    bundled.unwrap_or_else(|| PathBuf::from("onnxruntime.dll"))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,12 +51,33 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            commands::list_models,
+            commands::download_model,
+            commands::cancel_download,
+            commands::delete_model,
+            commands::use_model,
+            commands::onboarding_needed,
+            commands::finish_onboarding,
+            commands::check_microphone,
+            commands::open_microphone_settings,
+        ])
         .setup(|app| {
+            let handle = app.handle().clone();
             // Window title comes from productName so the name lives in one place.
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title(&app.package_info().name)?;
             }
-            dictation::spawn(app.handle().clone())?;
+
+            engine::parakeet::set_runtime_path(onnxruntime_path(&handle));
+            let host = EngineHost::new();
+            let models =
+                ModelManager::new(handle.clone(), paths::models_dir(&handle)?, host.clone());
+            models.load_at_startup();
+            app.manage(models);
+
+            dictation::spawn(handle, host)?;
             Ok(())
         })
         .run(tauri::generate_context!());

@@ -47,6 +47,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll": "onnxruntime.dll"
+    }
   }
 }

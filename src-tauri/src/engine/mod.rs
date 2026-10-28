@@ -1,5 +1,7 @@
 //! Speech engines. Every engine takes 16 kHz mono f32 and returns text.
 
+pub mod host;
+pub mod parakeet;
 pub mod whisper;
 
 #[cfg(test)]

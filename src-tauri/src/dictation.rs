@@ -7,19 +7,17 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::capture::{Recorder, Recording};
-use crate::engine::whisper::{
-    WhisperEngine, DEFAULT_MODEL_DIR, DEFAULT_MODEL_FILE, ROMAN_URDU_PROMPT,
-};
-use crate::engine::{has_arabic_script, EngineOptions, SpeechEngine};
+use crate::engine::has_arabic_script;
+use crate::engine::host::EngineHost;
 use crate::hotkey::listener::{self, Combo, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
 use crate::inject::{focus, paste};
 use crate::overlay::events::{Overlay, Phase};
-use crate::paths;
+use crate::settings::{LANGUAGE, ROMAN_URDU_MIXING};
 use crate::sound::player::{Cue, SoundPlayer};
 use crate::text::{self, snippets::SnippetContext, TextSettings};
 
@@ -27,10 +25,6 @@ use crate::text::{self, snippets::SnippetContext, TextSettings};
 const MIN_AUDIO_MS: u64 = 300;
 /// The toggle only hotkey is off by default. Becomes a setting in Phase 8.
 const TOGGLE_HOTKEY_ENABLED: bool = false;
-/// Language settings, fixed until Phase 8. Roman Urdu mixing (default on)
-/// forces English decoding so Urdu words stay in Latin script.
-const LANGUAGE: &str = "en";
-const ROMAN_URDU_MIXING: bool = true;
 /// Overlay and sound settings, fixed until Phase 8.
 const OVERLAY_ENABLED: bool = true;
 const SOUND_VOLUME: u8 = 60;
@@ -38,9 +32,7 @@ const SOUNDS_MUTED: bool = false;
 /// Capture starts this long after the start cue begins playing (spec 6.5).
 const START_CUE_LEAD: Duration = Duration::from_millis(60);
 
-type EngineResult = Result<Box<dyn SpeechEngine>>;
-
-pub fn spawn(app: AppHandle) -> Result<()> {
+pub fn spawn(app: AppHandle, engine: Arc<EngineHost>) -> Result<()> {
     let (tx, rx) = mpsc::channel();
     let recording = Arc::new(AtomicBool::new(false));
     listener::spawn(
@@ -54,7 +46,6 @@ pub fn spawn(app: AppHandle) -> Result<()> {
     let meter = overlay.clone();
     let recorder = Recorder::spawn(Box::new(move |level| meter.level(level)))?;
     let sound = SoundPlayer::spawn(SOUND_VOLUME, SOUNDS_MUTED);
-    let engine_rx = load_engine(&app)?;
     std::thread::Builder::new()
         .name("murmur-dictation".into())
         .spawn(move || {
@@ -68,8 +59,7 @@ pub fn spawn(app: AppHandle) -> Result<()> {
                 published: (State::Idle, None),
                 event_at: Instant::now(),
                 capture_started: None,
-                engine: None,
-                engine_rx: Some(engine_rx),
+                engine,
                 ignore_before: None,
                 // Dictionary, snippets and toggles load from settings in Phase 8.
                 text: TextSettings {
@@ -81,36 +71,6 @@ pub fn spawn(app: AppHandle) -> Result<()> {
         })
         .context("could not start dictation thread")?;
     Ok(())
-}
-
-/// Loads the model on its own thread so the hotkey works while it loads.
-fn load_engine(app: &AppHandle) -> Result<Receiver<EngineResult>> {
-    let path = paths::models_dir(app)?
-        .join(DEFAULT_MODEL_DIR)
-        .join(DEFAULT_MODEL_FILE);
-    let opts = EngineOptions {
-        initial_prompt: ROMAN_URDU_MIXING.then(|| ROMAN_URDU_PROMPT.to_string()),
-        ..EngineOptions::default()
-    };
-    let (tx, rx) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("murmur-model-load".into())
-        .spawn(move || {
-            let started = Instant::now();
-            let mut engine = WhisperEngine::new();
-            let result = engine.load(&path, &opts).map(|()| {
-                log::info!(
-                    "model loaded in {} ms: {}, {} threads",
-                    started.elapsed().as_millis(),
-                    path.display(),
-                    opts.n_threads
-                );
-                Box::new(engine) as Box<dyn SpeechEngine>
-            });
-            let _ = tx.send(result);
-        })
-        .context("could not start model loading thread")?;
-    Ok(rx)
 }
 
 /// Debug builds only, and only with MURMUR_FIXTURE_DIR set: saves each
@@ -149,9 +109,8 @@ struct Controller {
     event_at: Instant,
     /// Key time of the event that started the current recording.
     capture_started: Option<Instant>,
-    engine: Option<Box<dyn SpeechEngine>>,
-    /// Delivers the engine once the background load finishes.
-    engine_rx: Option<Receiver<EngineResult>>,
+    /// The active model; swapped from the Models page without a restart.
+    engine: Arc<EngineHost>,
     /// Key events from before this instant happened while transcribing and
     /// are dropped, so a press during Processing does not start a recording
     /// late.
@@ -345,12 +304,11 @@ impl Controller {
 
     /// Runs the engine and returns its raw text.
     fn transcribe(&mut self, rec: &Recording) -> Result<String> {
-        let engine = self.engine()?;
-        let transcript = engine.transcribe(&rec.samples, Some(LANGUAGE))?;
+        let (model, transcript) = self.engine.transcribe(&rec.samples, Some(LANGUAGE))?;
         let audio_ms = rec.duration_ms();
         log::info!(
             "{} transcribed {:.2} s of audio in {} ms ({:.2}x real time), language {}",
-            engine.id(),
+            model,
             audio_ms as f64 / 1000.0,
             transcript.inference_ms,
             transcript.inference_ms as f64 / audio_ms.max(1) as f64,
@@ -361,22 +319,6 @@ impl Controller {
         }
         log::info!("raw text: {}", transcript.text);
         Ok(transcript.text)
-    }
-
-    /// The loaded engine, waiting for the background load if it is still
-    /// running.
-    fn engine(&mut self) -> Result<&dyn SpeechEngine> {
-        if self.engine.is_none() {
-            if let Some(rx) = self.engine_rx.take() {
-                log::info!("waiting for the model to finish loading");
-                let engine = rx.recv().map_err(|_| anyhow!("model loading stopped"))??;
-                self.engine = Some(engine);
-            }
-        }
-        self.engine
-            .as_deref()
-            .filter(|e| e.is_loaded())
-            .context("no model loaded")
     }
 
     fn publish(&mut self) {
