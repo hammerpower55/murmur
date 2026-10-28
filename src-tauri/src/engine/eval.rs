@@ -113,7 +113,7 @@ fn fixture_wer() {
         .unwrap()
         .join("models");
     let spec = Registry::new(models_dir).resolve(&id).unwrap();
-    let opts = options_for(spec.family, true);
+    let opts = options_for(spec.family, &id, true);
     onnx::use_vendored_runtime();
     let mut engine: Box<dyn SpeechEngine> = match spec.family {
         Family::Whisper => Box::new(WhisperEngine::new()),

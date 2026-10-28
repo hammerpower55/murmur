@@ -61,10 +61,13 @@ pub struct ModelManager {
     downloads: Mutex<HashMap<String, Download>>,
 }
 
-/// Only Whisper takes a prompt; it keeps Roman Urdu in Latin script.
-pub fn options_for(family: Family, roman_urdu: bool) -> EngineOptions {
+/// Only Whisper takes a prompt; it keeps Roman Urdu in Latin script. The
+/// English only builds never get it (custom models are assumed multilingual).
+pub fn options_for(family: Family, id: &str, roman_urdu: bool) -> EngineOptions {
+    let knows_urdu = catalog::find(id)
+        .is_none_or(|m| m.languages.iter().any(|l| l == "*" || l == "ur"));
     EngineOptions {
-        initial_prompt: (family == Family::Whisper && roman_urdu)
+        initial_prompt: (family == Family::Whisper && roman_urdu && knows_urdu)
             .then(|| ROMAN_URDU_PROMPT.to_string()),
         ..EngineOptions::default()
     }
@@ -135,7 +138,7 @@ impl ModelManager {
         settings::set_active_model(&self.app, Some(id))?;
         let me = Arc::clone(self);
         let model_id = id.to_string();
-        let opts = options_for(spec.family, settings::current(&self.app).roman_urdu);
+        let opts = options_for(spec.family, id, settings::current(&self.app).roman_urdu);
         self.host
             .switch(spec.clone(), opts, move |result| {
                 if result.is_err() {
@@ -153,8 +156,8 @@ impl ModelManager {
     /// Reloads the active model so a changed Roman Urdu setting takes effect.
     /// Only Whisper uses it.
     pub fn reload_active(&self) {
-        if self.host.active_family() == Some(Family::Whisper) {
-            let opts = options_for(Family::Whisper, settings::current(&self.app).roman_urdu);
+        if let (Some(Family::Whisper), Some(id)) = (self.host.active_family(), self.host.active()) {
+            let opts = options_for(Family::Whisper, &id, settings::current(&self.app).roman_urdu);
             self.host.reload(opts);
             self.changed();
         }
@@ -262,5 +265,20 @@ impl ModelManager {
         log::info!("deleted {id}, freed {} MB", freed / 1_000_000);
         self.changed();
         Ok(freed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roman_urdu_prompt_only_reaches_whisper_models_that_know_urdu() {
+        let prompt = |family, id| options_for(family, id, true).initial_prompt.is_some();
+        assert!(prompt(Family::Whisper, "whisper-small"));
+        assert!(prompt(Family::Whisper, "my-custom-ggml"));
+        assert!(!prompt(Family::Whisper, "whisper-small-en-q8"));
+        assert!(!prompt(Family::Moonshine, "moonshine-tiny"));
+        assert!(options_for(Family::Whisper, "whisper-small", false).initial_prompt.is_none());
     }
 }

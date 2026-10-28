@@ -28,5 +28,8 @@ Each is subject to its own licence:
 
 Whisper (OpenAI), MIT License. GGML conversions by Georgi Gerganov.
 Parakeet TDT 0.6B v2 and v3 (NVIDIA), CC BY 4.0. ONNX exports by istupakov.
-Moonshine (Useful Sensors), MIT License.
+Moonshine Tiny and Base (Useful Sensors), MIT License.
+Moonshine Tiny Arabic, Chinese, Japanese, Korean, Ukrainian and Vietnamese
+  (Moonshine AI), Moonshine AI Community License: free for research,
+  non-commercial use, and organisations under US$1M annual revenue.
 SenseVoice Small (FunAudioLLM, Alibaba), FunASR Model License. ONNX export by the sherpa-onnx project (csukuangfj).

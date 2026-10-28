@@ -237,6 +237,306 @@
           "sha256": "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1"
         }
       ]
+    },
+    {
+      "id": "whisper-tiny-q8",
+      "name": "Whisper Tiny",
+      "family": "whisper",
+      "accuracy": 2,
+      "speed": 5,
+      "languages": ["*"],
+      "languages_label": "99 languages, Urdu included",
+      "ram_mb": 250,
+      "files": [
+        {
+          "name": "ggml-tiny-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny-q8_0.bin",
+          "size": 43537433,
+          "sha256": "c2085835d3f50733e2ff6e4b41ae8a2b8d8110461e18821b09a15c40c42d1cca"
+        }
+      ]
+    },
+    {
+      "id": "whisper-base-q8",
+      "name": "Whisper Base",
+      "family": "whisper",
+      "accuracy": 2,
+      "speed": 5,
+      "languages": ["*"],
+      "languages_label": "99 languages, Urdu included",
+      "ram_mb": 350,
+      "files": [
+        {
+          "name": "ggml-base-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base-q8_0.bin",
+          "size": 81768585,
+          "sha256": "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9"
+        }
+      ]
+    },
+    {
+      "id": "whisper-small-q8",
+      "name": "Whisper Small (compact)",
+      "family": "whisper",
+      "accuracy": 3,
+      "speed": 4,
+      "languages": ["*"],
+      "languages_label": "99 languages, Urdu included",
+      "ram_mb": 600,
+      "files": [
+        {
+          "name": "ggml-small-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q8_0.bin",
+          "size": 264464607,
+          "sha256": "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f"
+        }
+      ]
+    },
+    {
+      "id": "whisper-small-en-q8",
+      "name": "Whisper Small English",
+      "family": "whisper",
+      "accuracy": 3,
+      "speed": 4,
+      "languages": ["en"],
+      "languages_label": "English only",
+      "ram_mb": 600,
+      "files": [
+        {
+          "name": "ggml-small.en-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en-q8_0.bin",
+          "size": 264477561,
+          "sha256": "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067"
+        }
+      ]
+    },
+    {
+      "id": "whisper-medium-en-q8",
+      "name": "Whisper Medium English",
+      "family": "whisper",
+      "accuracy": 4,
+      "speed": 3,
+      "languages": ["en"],
+      "languages_label": "English only",
+      "ram_mb": 1500,
+      "files": [
+        {
+          "name": "ggml-medium.en-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-medium.en-q8_0.bin",
+          "size": 823382461,
+          "sha256": "43fa2cd084de5a04399a896a9a7a786064e221365c01700cea4666005218f11c"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny",
+      "name": "Moonshine Tiny",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["en"],
+      "languages_label": "English only",
+      "ram_mb": 250,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny/quantized/encoder_model.onnx",
+          "size": 7937661,
+          "sha256": "c6fc4b7bc5af75c0591fd157a1f3829b533d18e9769a888fd95a62e470dd4f4a"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny/quantized/decoder_model_merged.onnx",
+          "size": 20243286,
+          "sha256": "eed87831c3a6103534aae7d47a5d485025c659a1323901513961c39fe8a1a367"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-ar",
+      "name": "Moonshine Tiny Arabic",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["ar"],
+      "languages_label": "Arabic only",
+      "ram_mb": 450,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-ar/float/encoder_model.onnx",
+          "size": 30947926,
+          "sha256": "a4f00f174e94614ad882cc129b3cd7d7da75749a497dcfae49f3c492a4ef206a"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-ar/float/decoder_model_merged.onnx",
+          "size": 116273956,
+          "sha256": "1c3f937331ed45c9d9ead1d7dcf1ffad974bf6338e82a4649e887ad83478e548"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-zh",
+      "name": "Moonshine Tiny Chinese",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["zh"],
+      "languages_label": "Chinese only",
+      "ram_mb": 450,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-zh/float/encoder_model.onnx",
+          "size": 30947926,
+          "sha256": "59232640f7ff735793dfa8bd2b8078f7c1a1bfd63d56c92b93a5a3bcfd1c1c86"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-zh/float/decoder_model_merged.onnx",
+          "size": 116273956,
+          "sha256": "453ff921ce2749ca9333869bcfd69378a3abbd678801b6277a3510373d96f824"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-ja",
+      "name": "Moonshine Tiny Japanese",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["ja"],
+      "languages_label": "Japanese only",
+      "ram_mb": 450,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-ja/float/encoder_model.onnx",
+          "size": 30947926,
+          "sha256": "706fce027c30b6635f9ea6e8bf7284ffbe750bc0e25b5536bf09cc88c9165e14"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-ja/float/decoder_model_merged.onnx",
+          "size": 116273956,
+          "sha256": "d272171fd7b2353fd55579206527c51e30fc05ea5dea7f4f967eb4dde977b6d0"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-ko",
+      "name": "Moonshine Tiny Korean",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["ko"],
+      "languages_label": "Korean only",
+      "ram_mb": 450,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-ko/float/encoder_model.onnx",
+          "size": 30947926,
+          "sha256": "55db07d8cac4a7f482715025fa1a135da432678e9190af02ae6adfd02a1a4fb6"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-ko/float/decoder_model_merged.onnx",
+          "size": 116273956,
+          "sha256": "cc1455e7a87bed5a7b785eb7582446e36dc4a7aee19695e21002147c6b7cc226"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-tiny-ko/resolve/80995f09a256c86c52dea435ba787dc6dfc0ee61/tokenizer.json",
+          "size": 1985530,
+          "git_sha1": "62eefa35d34fc93b41abdd355b6ed96823fed265"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-uk",
+      "name": "Moonshine Tiny Ukrainian",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["uk"],
+      "languages_label": "Ukrainian only",
+      "ram_mb": 450,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-uk/float/encoder_model.onnx",
+          "size": 30947926,
+          "sha256": "da4800da01cd9eea0b1b437fd5fee9c4c8647abdabb1acc455bead7f75e87d66"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-uk/float/decoder_model_merged.onnx",
+          "size": 116273956,
+          "sha256": "887df456e3ce3f424a1eda32627cc5ce6000efd530b8ac9888cd023e141a41b6"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-vi",
+      "name": "Moonshine Tiny Vietnamese",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["vi"],
+      "languages_label": "Vietnamese only",
+      "ram_mb": 450,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-vi/float/encoder_model.onnx",
+          "size": 30947926,
+          "sha256": "902dfab6ed09693198477bcd651b330940b0ee66d5d7f00d785db9c2546ecd66"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/tiny-vi/float/decoder_model_merged.onnx",
+          "size": 116273956,
+          "sha256": "7835bc43ee9d9bb0d95f90c354c9d0fe1ad94ed62f13f9b1452c4a05a33d01ba"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
     }
   ]
 }

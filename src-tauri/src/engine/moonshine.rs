@@ -1,5 +1,6 @@
-//! Useful Sensors Moonshine Base (English) through ONNX Runtime, using the
-//! int8 "merged" export from UsefulSensors/moonshine:
+//! Moonshine (Base and Tiny in English, Tiny in six other languages) through
+//! ONNX Runtime, using the "merged" exports from UsefulSensors/moonshine (int8
+//! for English, float for the others):
 //!
 //! 1. The encoder takes raw 16 kHz audio and returns hidden states.
 //! 2. The merged decoder generates tokens greedily. Its first step runs the
@@ -27,8 +28,10 @@ pub const TOKENIZER: &str = "tokenizer.json";
 
 const START_TOKEN: i64 = 1;
 const END_TOKEN: i64 = 2;
-/// Moonshine's reference code allows about 6 tokens per second of audio.
-const TOKENS_PER_SECOND: f64 = 6.5;
+/// Moonshine's reference code allows about 6 tokens per second of English.
+/// The Chinese, Japanese and Korean models spend a token or more per
+/// character, so the cap is doubled; it only bites when the decoder loops.
+const TOKENS_PER_SECOND: f64 = 13.0;
 
 /// One past_key_values input and the present output that feeds it.
 struct CacheSlot {

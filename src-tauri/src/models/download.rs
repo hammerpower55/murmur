@@ -82,6 +82,26 @@ fn part_path(target: &Path) -> PathBuf {
     target.with_file_name(name)
 }
 
+/// Hard failures (refused, reset, timed out) allowed per source before the
+/// download gives up.
+const TRIES_PER_SOURCE: usize = 3;
+/// With a mirror to fall back on, a connection slower than this after
+/// SLOW_AFTER moves on to the next source.
+const SLOW_BYTES_PER_SEC: u64 = 100 * 1024;
+const SLOW_AFTER: Duration = Duration::from_secs(8);
+
+/// Moved on from a source that was too slow; not counted as a failure.
+#[derive(Debug)]
+struct TooSlow;
+
+impl std::fmt::Display for TooSlow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("source too slow")
+    }
+}
+
+impl std::error::Error for TooSlow {}
+
 fn download_file(
     client: &reqwest::blocking::Client,
     file: &ModelFile,
@@ -90,70 +110,30 @@ fn download_file(
     mut on_progress: impl FnMut(u64),
 ) -> Result<()> {
     let part = part_path(target);
-    let mut have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-    if have > file.size {
-        fs::remove_file(&part).ok();
-        have = 0;
-    }
-
-    if have < file.size {
-        let mut request = client.get(&file.url);
-        if have > 0 {
-            request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
-        }
-        let mut response = request
-            .send()
-            .with_context(|| format!("could not reach {}", host(&file.url)))?;
-        let status = response.status();
-        let append = match status.as_u16() {
-            206 => true,
-            200 => {
-                // The server ignored the range: start over.
-                have = 0;
-                false
-            }
-            416 => bail!("the server refused to resume {}", file.name),
-            _ => bail!(
-                "download of {} failed with HTTP {}",
-                file.name,
-                status.as_u16()
-            ),
-        };
-
-        let mut out = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(append)
-            .truncate(!append)
-            .open(&part)
-            .with_context(|| format!("could not write {}", part.display()))?;
-
-        let mut buf = vec![0u8; 256 * 1024];
-        let mut last_report = Instant::now();
-        on_progress(have);
-        loop {
-            if cancel.load(Ordering::SeqCst) {
-                out.flush().ok();
-                return Err(Cancelled.into());
-            }
-            let n = response
-                .read(&mut buf)
-                .with_context(|| format!("connection lost while downloading {}", file.name))?;
-            if n == 0 {
-                break;
-            }
-            out.write_all(&buf[..n])
-                .with_context(|| format!("could not write {}", part.display()))?;
-            have += n as u64;
-            if last_report.elapsed() >= PROGRESS_EVERY {
-                on_progress(have);
-                last_report = Instant::now();
+    let sources: Vec<&str> = std::iter::once(file.url.as_str())
+        .chain(file.mirrors.iter().map(String::as_str))
+        .collect();
+    let mut failures = 0;
+    let mut current = 0;
+    loop {
+        let url = sources[current];
+        match fetch(client, url, file, &part, cancel, sources.len() > 1, &mut on_progress) {
+            Ok(()) => break,
+            Err(err) if is_cancelled(&err) => return Err(err),
+            Err(err) => {
+                if err.downcast_ref::<TooSlow>().is_none() {
+                    failures += 1;
+                    if failures >= TRIES_PER_SOURCE * sources.len() {
+                        return Err(err);
+                    }
+                }
+                log::warn!("{} from {}: {err:#}; trying again", file.name, host(url));
+                current = (current + 1) % sources.len();
             }
         }
-        out.flush()?;
-        on_progress(have);
     }
 
+    let have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
     if have != file.size {
         bail!(
             "{} is {} bytes, expected {}; try again",
@@ -167,6 +147,97 @@ fn download_file(
         bail!("{} failed its integrity check; try again", file.name);
     }
     fs::rename(&part, target).with_context(|| format!("could not finish {}", file.name))?;
+    Ok(())
+}
+
+/// Appends to `part` from `url` until the file is complete, resuming with
+/// a Range request. Every source serves the same bytes (the hash checks it),
+/// so a download can switch sources part way.
+fn fetch(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    file: &ModelFile,
+    part: &Path,
+    cancel: &AtomicBool,
+    give_up_when_slow: bool,
+    on_progress: &mut impl FnMut(u64),
+) -> Result<()> {
+    let mut have = fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+    if have > file.size {
+        fs::remove_file(part).ok();
+        have = 0;
+    }
+    if have == file.size {
+        return Ok(());
+    }
+
+    let mut request = client.get(url);
+    if have > 0 {
+        request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
+    }
+    let mut response = request
+        .send()
+        .with_context(|| format!("could not reach {}", host(url)))?;
+    let status = response.status();
+    let append = match status.as_u16() {
+        206 => true,
+        200 => {
+            // The server ignored the range: start over.
+            have = 0;
+            false
+        }
+        416 => bail!("the server refused to resume {}", file.name),
+        _ => bail!(
+            "download of {} failed with HTTP {}",
+            file.name,
+            status.as_u16()
+        ),
+    };
+
+    let mut out = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(part)
+        .with_context(|| format!("could not write {}", part.display()))?;
+
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut last_report = Instant::now();
+    let started = Instant::now();
+    let mut fetched = 0u64;
+    let mut checked_speed = false;
+    on_progress(have);
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            out.flush().ok();
+            return Err(Cancelled.into());
+        }
+        let n = response
+            .read(&mut buf)
+            .with_context(|| format!("connection lost while downloading {}", file.name))?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n])
+            .with_context(|| format!("could not write {}", part.display()))?;
+        have += n as u64;
+        fetched += n as u64;
+        if last_report.elapsed() >= PROGRESS_EVERY {
+            on_progress(have);
+            last_report = Instant::now();
+        }
+        if give_up_when_slow && !checked_speed && started.elapsed() >= SLOW_AFTER {
+            checked_speed = true;
+            if fetched < SLOW_BYTES_PER_SEC * started.elapsed().as_secs() {
+                out.flush().ok();
+                on_progress(have);
+                return Err(TooSlow.into());
+            }
+        }
+    }
+    out.flush()?;
+    on_progress(have);
     Ok(())
 }
 
@@ -285,6 +356,7 @@ mod tests {
                 size: body.len() as u64,
                 sha256: Some(hex::encode(Sha256::digest(body))),
                 git_sha1: None,
+                mirrors: Vec::new(),
             }],
         }
     }
@@ -365,6 +437,19 @@ mod tests {
     }
 
     #[test]
+    fn falls_back_to_a_mirror_when_the_main_source_is_down() {
+        let data = body(300_000);
+        let mirror = serve(data.clone(), true);
+        // Nothing listens on port 1.
+        let mut model = model_for("http://127.0.0.1:1/model.bin", &data);
+        model.files[0].mirrors = vec![mirror];
+        let dir = temp_dir("mirror");
+        download_model(&model, &dir, &AtomicBool::new(false), |_, _| {}).unwrap();
+        assert_eq!(fs::read(dir.join("model.bin")).unwrap(), data);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn complete_files_are_skipped() {
         let data = body(1000);
         // Nothing listens here: any request would fail.
@@ -421,6 +506,7 @@ mod tests {
             size: 6,
             sha256: None,
             git_sha1: Some("ce013625030ba8dba906f756967f9e9ca394464a".into()),
+            mirrors: Vec::new(),
         };
         assert!(hash_matches(&path, &file).unwrap());
         fs::remove_dir_all(&dir).ok();

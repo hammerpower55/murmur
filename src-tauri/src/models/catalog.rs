@@ -25,6 +25,9 @@ pub struct ModelFile {
     /// Small files kept in git: the git blob SHA-1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_sha1: Option<String>,
+    /// Other places serving the same bytes, tried when `url` fails or crawls.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
