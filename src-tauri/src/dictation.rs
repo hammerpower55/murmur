@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use tauri::{AppHandle, Emitter};
@@ -18,7 +18,9 @@ use crate::engine::{has_arabic_script, EngineOptions, SpeechEngine};
 use crate::hotkey::listener::{self, Combo, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
 use crate::inject::{focus, paste};
+use crate::overlay::events::{Overlay, Phase};
 use crate::paths;
+use crate::sound::player::{Cue, SoundPlayer};
 use crate::text::{self, snippets::SnippetContext, TextSettings};
 
 /// Recordings shorter than this are discarded.
@@ -29,6 +31,12 @@ const TOGGLE_HOTKEY_ENABLED: bool = false;
 /// forces English decoding so Urdu words stay in Latin script.
 const LANGUAGE: &str = "en";
 const ROMAN_URDU_MIXING: bool = true;
+/// Overlay and sound settings, fixed until Phase 8.
+const OVERLAY_ENABLED: bool = true;
+const SOUND_VOLUME: u8 = 60;
+const SOUNDS_MUTED: bool = false;
+/// Capture starts this long after the start cue begins playing (spec 6.5).
+const START_CUE_LEAD: Duration = Duration::from_millis(60);
 
 type EngineResult = Result<Box<dyn SpeechEngine>>;
 
@@ -42,7 +50,10 @@ pub fn spawn(app: AppHandle) -> Result<()> {
         tx,
     );
 
-    let recorder = Recorder::spawn()?;
+    let overlay = Overlay::new(app.clone(), OVERLAY_ENABLED);
+    let meter = overlay.clone();
+    let recorder = Recorder::spawn(Box::new(move |level| meter.level(level)))?;
+    let sound = SoundPlayer::spawn(SOUND_VOLUME, SOUNDS_MUTED);
     let engine_rx = load_engine(&app)?;
     std::thread::Builder::new()
         .name("murmur-dictation".into())
@@ -52,6 +63,8 @@ pub fn spawn(app: AppHandle) -> Result<()> {
                 machine: Machine::new(),
                 recorder,
                 recording,
+                overlay,
+                sound,
                 published: (State::Idle, None),
                 event_at: Instant::now(),
                 capture_started: None,
@@ -129,6 +142,8 @@ struct Controller {
     recorder: Recorder,
     /// Shared with the hotkey hook so it knows when to capture Escape.
     recording: Arc<AtomicBool>,
+    overlay: Overlay,
+    sound: SoundPlayer,
     published: (State, Option<Mode>),
     /// When the event being handled happened (key time, or now for timers).
     event_at: Instant,
@@ -201,19 +216,18 @@ impl Controller {
     fn apply(&mut self, effect: Effect) -> Option<Input> {
         match effect {
             Effect::None => None,
-            Effect::StartCapture => match self.recorder.start() {
-                Ok(()) => {
-                    self.recording.store(true, Ordering::SeqCst);
-                    self.capture_started = Some(self.event_at);
-                    None
-                }
-                Err(err) => {
-                    log::error!("could not start recording: {err:#}");
-                    Some(Input::Failed)
-                }
-            },
+            Effect::StartCapture => {
+                // Pill first so it shows well inside 100 ms, then the cue,
+                // then the microphone once the cue is under way.
+                self.overlay.recording();
+                self.sound.play(Cue::Start);
+                std::thread::sleep(START_CUE_LEAD);
+                self.start_capture()
+            }
             Effect::StopCapture => {
                 self.recording.store(false, Ordering::SeqCst);
+                // The stop cue plays only after capture has stopped, so it
+                // never lands in the recording.
                 match self.recorder.stop() {
                     Ok(rec) => {
                         let ms = rec.duration_ms();
@@ -228,9 +242,14 @@ impl Controller {
                             rec.device_rate
                         );
                         if ms < MIN_AUDIO_MS {
+                            // Discarded plays the cancel cue instead.
                             log::info!("too short, discarded");
                             return Some(Input::Discarded);
                         }
+                        self.sound.play(Cue::Stop);
+                        // Show "Transcribing" now: the state change is only
+                        // published after this effect, i.e. after transcription.
+                        self.overlay.set(Phase::Processing);
                         // Recording fixtures skips transcription, so presses are
                         // never dropped while a long transcription runs.
                         #[cfg(debug_assertions)]
@@ -258,6 +277,20 @@ impl Controller {
                 self.recording.store(false, Ordering::SeqCst);
                 self.recorder.cancel();
                 None
+            }
+        }
+    }
+
+    fn start_capture(&mut self) -> Option<Input> {
+        match self.recorder.start() {
+            Ok(()) => {
+                self.recording.store(true, Ordering::SeqCst);
+                self.capture_started = Some(self.event_at);
+                None
+            }
+            Err(err) => {
+                log::error!("could not start recording: {err:#}");
+                Some(Input::Failed)
             }
         }
     }
@@ -351,8 +384,21 @@ impl Controller {
         if current == self.published {
             return;
         }
-        let state_changed = current.0 != self.published.0;
+        let previous = self.published.0;
+        let state_changed = current.0 != previous;
         self.published = current;
+        if state_changed {
+            match (previous, current.0) {
+                (_, State::Processing) => self.overlay.set(Phase::Processing),
+                (_, State::Cancelled) => {
+                    self.sound.play(Cue::Cancel);
+                    self.overlay.set(Phase::Cancelled);
+                }
+                (_, State::Error) => self.overlay.set(Phase::Error),
+                (State::Processing, State::Idle) => self.overlay.set(Phase::Done),
+                _ => {}
+            }
+        }
         let name = format!("{:?}", current.0).to_lowercase();
         match current.1 {
             Some(mode) => log::info!("state: {name} ({mode:?})"),

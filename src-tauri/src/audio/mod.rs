@@ -1,4 +1,5 @@
 pub mod capture;
+pub mod levels;
 pub mod resample;
 pub mod wav;
 

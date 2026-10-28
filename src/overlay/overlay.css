@@ -1,0 +1,173 @@
+/* The floating pill (spec 6.4). Dark only. Transforms and opacity only, so
+   animation never triggers layout. */
+
+:root {
+  --bar-colour: #ffffff;
+  --pill-bg: rgba(20, 20, 22, 0.92);
+  --pill-border: rgba(255, 255, 255, 0.08);
+  --text: rgba(255, 255, 255, 0.86);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+.pill {
+  position: relative;
+  width: 240px;
+  height: 56px;
+  box-sizing: border-box;
+  border-radius: 28px;
+  background: var(--pill-bg);
+  border: 1px solid var(--pill-border);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.32),
+    0 1px 3px rgba(0, 0, 0, 0.24);
+  opacity: 0;
+  transform: scale(0.92);
+  will-change: opacity, transform;
+}
+
+/* Appear: 160 ms ease out. */
+.pill.shown {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Disappear: 140 ms ease in, towards 0.96. */
+.pill.leaving {
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 140ms cubic-bezier(0.7, 0, 0.84, 0),
+    transform 140ms cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+.view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.pill[data-phase="recording"] .recording,
+.pill[data-phase="processing"] .processing,
+.pill[data-phase="done"] .done,
+.pill[data-phase="cancelled"] .cancelled,
+.pill[data-phase="error"] .error {
+  opacity: 1;
+}
+
+.mic {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.bars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+}
+
+/* Each bar is 40 px tall (6 px idle + 34 px range) and scaled down, so a
+   level change is a transform, never a layout. */
+.bar {
+  width: 3px;
+  height: 40px;
+  border-radius: 4px;
+  background: var(--bar-colour);
+  transform: scaleY(0.15);
+  will-change: transform;
+}
+
+/* Near silence: bars rest at 6 px and breathe on a 1.2 s cycle. */
+.bars.idle .bar {
+  animation: breathe 1.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.label {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.dots {
+  display: flex;
+  gap: 5px;
+}
+
+.dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--bar-colour);
+  opacity: 0.3;
+  animation: pulse 900ms ease-in-out infinite;
+}
+
+.dots span:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.dots span:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.glyph {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

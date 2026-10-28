@@ -3,7 +3,9 @@ mod dictation;
 mod engine;
 mod hotkey;
 mod inject;
+mod overlay;
 mod paths;
+mod sound;
 mod text;
 
 use tauri::Manager;

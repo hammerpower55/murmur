@@ -35,6 +35,8 @@ Build phases run in order. Each phase ends with its acceptance checks, one commi
 - Whisper always encodes its full 30 s window. Shrinking it with `audio_ctx` was 3x faster but garbled Roman Urdu and repeated sentences on real recordings. Do not reintroduce without rerunning the fixture WER check.
 - Whisper output that is just a run of three or more words copied from the initial prompt is dropped (it happens on silence).
 - Fixture clips: debug builds with `MURMUR_FIXTURE_DIR` set save each dictation as the next free `clip_NN.wav` and skip transcription. Release builds never write audio.
+- The overlay window is never hidden. It stays shown, transparent, click through and non focusable (`focusable: false` gives WS_EX_NOACTIVATE; click through gives WS_EX_TRANSPARENT | WS_EX_LAYERED), and the page draws nothing when idle. Hiding it breaks things: WebView2 stops rendering hidden windows, and showing a window through Tauri activates it and steals focus. Placement uses Win32 `SetWindowPos` with SWP_NOACTIVATE. Idle CPU with overlay and sound output open: about 0.25%.
+- Testing with injected keys: keep Notepad (never this chat app, never Murmur) in front. Injected keys do not reach the hook while Murmur's own window has focus, and anything the mic hears gets pasted into the focused app.
 - WER check: `cargo test fixture_wer -- --ignored --nocapture` (needs the model and `tests/audio`). Timings are only meaningful on AC power with the machine quiet; a rebuild in this OneDrive folder triggers OneDrive and Defender scans that slow it 2x.
 
 ## Architecture

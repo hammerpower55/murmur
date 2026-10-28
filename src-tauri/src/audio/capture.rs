@@ -14,6 +14,7 @@ use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, Stream, StreamConfi
 use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 
+use super::levels::{Level, LevelMeter};
 use super::{resample, TARGET_RATE};
 
 /// How often the capture thread drains the ring buffer while recording.
@@ -41,6 +42,9 @@ enum Command {
     Cancel,
 }
 
+/// Called with the input level every 50 ms while recording.
+pub type LevelCallback = Box<dyn Fn(Level) + Send>;
+
 /// Handle to the capture thread.
 pub struct Recorder {
     tx: Sender<Command>,
@@ -48,11 +52,11 @@ pub struct Recorder {
 
 impl Recorder {
     /// Starts the capture thread and builds the stream in the background.
-    pub fn spawn() -> Result<Self> {
+    pub fn spawn(on_level: LevelCallback) -> Result<Self> {
         let (tx, rx) = mpsc::channel();
         std::thread::Builder::new()
             .name("murmur-audio".into())
-            .spawn(move || run(rx))
+            .spawn(move || run(rx, on_level))
             .context("could not start audio thread")?;
         let _ = tx.send(Command::Prepare);
         Ok(Self { tx })
@@ -82,10 +86,11 @@ impl Recorder {
     }
 }
 
-fn run(rx: Receiver<Command>) {
+fn run(rx: Receiver<Command>, on_level: LevelCallback) {
     let mut mic: Option<Mic> = None;
     // Device rate samples of the recording in progress, if any.
     let mut take: Option<Vec<f32>> = None;
+    let mut meter = LevelMeter::new(TARGET_RATE);
 
     loop {
         let command = if take.is_some() {
@@ -102,7 +107,11 @@ fn run(rx: Receiver<Command>) {
         };
 
         if let (Some(m), Some(samples)) = (mic.as_mut(), take.as_mut()) {
+            let before = samples.len();
             m.drain_into(samples);
+            for level in meter.push(&samples[before..]) {
+                on_level(level);
+            }
         }
 
         match command {
@@ -114,8 +123,9 @@ fn run(rx: Receiver<Command>) {
             }
             Some(Command::Start(reply)) => {
                 let result = ensure_mic(&mut mic).and_then(|m| m.start());
-                if result.is_ok() {
+                if let (Ok(()), Some(m)) = (&result, mic.as_ref()) {
                     take = Some(Vec::new());
+                    meter = LevelMeter::new(m.rate);
                 } else {
                     // Drop it so the next attempt starts from scratch.
                     mic = None;
