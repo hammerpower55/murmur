@@ -481,6 +481,215 @@ fn item_end(tokens: &[Token], start: usize) -> usize {
         .unwrap_or(tokens.len())
 }
 
+// 3b. Lists people say without numbers
+
+/// Longest item in a list said without numbers. Anything longer reads as
+/// prose, not a list.
+const IMPLICIT_ITEM_MAX_WORDS: usize = 15;
+const ANNOUNCED_ITEM_MAX_WORDS: usize = 20;
+const LEAD_WORDS: usize = 2;
+
+/// Splits into sentences, each keeping its closing punctuation.
+fn sentences(tokens: &[Token]) -> Vec<Vec<Token>> {
+    let mut out = vec![Vec::new()];
+    for t in tokens {
+        if let Some(s) = out.last_mut() {
+            s.push(t.clone());
+        }
+        if t.ends_sentence() {
+            out.push(Vec::new());
+        }
+    }
+    out.retain(|s| words(s) > 0);
+    out
+}
+
+/// The first `LEAD_WORDS` words, lowercase, as the item's opening.
+fn lead(tokens: &[Token]) -> Option<Vec<String>> {
+    let lead: Vec<String> = tokens.iter().filter_map(lower).take(LEAD_WORDS).collect();
+    (lead.len() == LEAD_WORDS).then_some(lead)
+}
+
+fn strip_connectives(mut part: &[Token]) -> &[Token] {
+    part = trim_leading(part);
+    while part
+        .first()
+        .and_then(lower)
+        .is_some_and(|w| matches!(w.as_str(), "and" | "also" | "then" | "plus"))
+    {
+        part = trim_leading(&part[1..]);
+    }
+    part
+}
+
+/// "I need a bigger board, I need multiplayer, I need audio chat": three or
+/// more comma separated parts, all but at most one opening the same way.
+fn parallel_clauses(sentence: &[Token]) -> Option<Vec<Vec<Token>>> {
+    let parts: Vec<Vec<Token>> = sentence
+        .split(|t| t.is_comma() || is_punct(t, &[";"]))
+        .map(|p| strip_connectives(p).to_vec())
+        .filter(|p| words(p) > 0)
+        .collect();
+    if parts.len() < 3 || parts.iter().any(|p| words(p) > IMPLICIT_ITEM_MAX_WORDS) {
+        return None;
+    }
+    let leads: Vec<Option<Vec<String>>> = parts.iter().map(|p| lead(p)).collect();
+    let shared = leads.iter().flatten().max_by_key(|l| leads.iter().filter(|m| m.as_ref() == Some(l)).count())?;
+    let same = leads.iter().filter(|l| l.as_ref() == Some(shared)).count();
+    (same >= 3 && same + 1 >= parts.len()).then_some(parts)
+}
+
+/// "I need three things: milk, eggs and bread": three or more short items
+/// after a colon. Returns the intro and the items.
+fn colon_list(sentence: &[Token]) -> Option<(Vec<Token>, Vec<Vec<Token>>)> {
+    let colon = sentence.iter().position(|t| is_punct(t, &[":"]))?;
+    let intro = sentence[..colon].to_vec();
+    let mut items: Vec<Vec<Token>> = Vec::new();
+    for part in sentence[colon + 1..].split(|t| t.is_comma()) {
+        // "eggs and bread" at the end is two items.
+        let part = strip_connectives(part);
+        match part.iter().position(|t| t.is_word_ci("and")) {
+            Some(a) if part.len() > a + 1 => {
+                items.push(part[..a].to_vec());
+                items.push(part[a + 1..].to_vec());
+            }
+            _ => items.push(part.to_vec()),
+        }
+    }
+    items.retain(|p| words(p) > 0);
+    (words(&intro) > 0 && items.len() >= 3 && items.iter().all(|p| words(p) <= 5)).then_some((intro, items))
+}
+
+fn announces_a_list(sentence: &[Token]) -> bool {
+    sentence.iter().any(|t| t.is_word_ci("following"))
+        || sentence.iter().rev().find(|t| !matches!(t, Token::Break(_))).is_some_and(|t| is_punct(t, &[":"]))
+}
+
+fn push_bullets(out: &mut Vec<Token>, items: &[Vec<Token>]) {
+    for (k, item) in items.iter().enumerate() {
+        let mut item = trim_leading(item).to_vec();
+        trim_trailing(&mut item);
+        while item.last().is_some_and(|t| is_punct(t, &["?", "!"])) {
+            item.pop();
+        }
+        capitalise_first(&mut item);
+        if k > 0 {
+            out.push(Token::Break(1));
+        }
+        out.push(Token::Raw("-".into()));
+        out.extend(item);
+    }
+}
+
+/// Ends the text before a list with a colon and a line break.
+fn push_intro(out: &mut Vec<Token>, before: &[Token]) {
+    let mut intro = before.to_vec();
+    trim_trailing(&mut intro);
+    if intro.is_empty() {
+        return;
+    }
+    out.extend(intro);
+    out.push(Token::Close(":".into()));
+    out.push(Token::Break(1));
+}
+
+/// Lists said the way people talk, without numbers: a sentence of parallel
+/// clauses, a colon followed by short items, a run of three or more short
+/// sentences that open the same way, or short sentences after one that
+/// announces them ("make the following changes"). Items keep their words.
+pub fn implicit_lists(tokens: Vec<Token>) -> Vec<Token> {
+    // A list already made from numbers or bullets is left alone.
+    if tokens.iter().any(|t| matches!(t, Token::Raw(_) | Token::Break(_))) {
+        return tokens;
+    }
+    let sents = sentences(&tokens);
+    let short = |s: &Vec<Token>, max: usize| words(s) <= max && !s.last().is_some_and(|t| is_punct(t, &["?"]));
+
+    for (k, s) in sents.iter().enumerate() {
+        let before: Vec<Token> = sents[..k].concat();
+        let after: Vec<Token> = sents[k + 1..].concat();
+
+        // One sentence of parallel clauses, or a colon list.
+        let found = parallel_clauses(s)
+            .map(|items| (before.clone(), items))
+            .or_else(|| colon_list(s).map(|(intro, items)| ([before.clone(), intro].concat(), items)));
+        if let Some((intro, items)) = found {
+            let mut out = Vec::new();
+            push_intro(&mut out, &intro);
+            push_bullets(&mut out, &items);
+            if words(&after) > 0 {
+                out.push(Token::Break(2));
+                out.extend(after);
+            }
+            return out;
+        }
+
+        // "Here is what I need: the report is late. The client called."
+        // The words after a colon are the first item, the short sentences
+        // after it the rest, three or more in all.
+        if let Some(c) = s.iter().position(|t| is_punct(t, &[":"])) {
+            let (head, first) = (&s[..c], &s[c + 1..]);
+            let run = sents[k + 1..]
+                .iter()
+                .take_while(|n| short(n, ANNOUNCED_ITEM_MAX_WORDS))
+                .count();
+            if words(head) > 0 && (1..=ANNOUNCED_ITEM_MAX_WORDS).contains(&words(first)) && run >= 2 {
+                let mut out = Vec::new();
+                push_intro(&mut out, &[before, head.to_vec()].concat());
+                let items: Vec<Vec<Token>> = std::iter::once(first.to_vec())
+                    .chain(sents[k + 1..k + 1 + run].iter().cloned())
+                    .collect();
+                push_bullets(&mut out, &items);
+                let rest: Vec<Token> = sents[k + 1 + run..].concat();
+                if words(&rest) > 0 {
+                    out.push(Token::Break(2));
+                    out.extend(rest);
+                }
+                return out;
+            }
+        }
+
+        // Short sentences after one that announces them.
+        if announces_a_list(s) {
+            let run = sents[k + 1..]
+                .iter()
+                .take_while(|n| short(n, ANNOUNCED_ITEM_MAX_WORDS))
+                .count();
+            if run >= 2 {
+                let mut out = Vec::new();
+                push_intro(&mut out, &[before, s.clone()].concat());
+                push_bullets(&mut out, &sents[k + 1..k + 1 + run]);
+                let rest: Vec<Token> = sents[k + 1 + run..].concat();
+                if words(&rest) > 0 {
+                    out.push(Token::Break(2));
+                    out.extend(rest);
+                }
+                return out;
+            }
+        }
+
+        // Three or more short sentences in a row opening the same way.
+        if let Some(l) = lead(s).filter(|_| short(s, IMPLICIT_ITEM_MAX_WORDS)) {
+            let run = sents[k..]
+                .iter()
+                .take_while(|n| short(n, IMPLICIT_ITEM_MAX_WORDS) && lead(n).as_ref() == Some(&l))
+                .count();
+            if run >= 3 {
+                let mut out = Vec::new();
+                push_intro(&mut out, &before);
+                push_bullets(&mut out, &sents[k..k + run]);
+                let rest: Vec<Token> = sents[k + run..].concat();
+                if words(&rest) > 0 {
+                    out.push(Token::Break(2));
+                    out.extend(rest);
+                }
+                return out;
+            }
+        }
+    }
+    tokens
+}
+
 // 4. Paragraphs
 
 const TRANSITIONS: &[&str] = &[
@@ -730,6 +939,72 @@ mod tests {
             run(lists, "Notes. Bullet point fix the login. Bullet point update the docs."),
             "Notes:\n- Fix the login\n- Update the docs"
         );
+    }
+
+    // Lists without numbers
+
+    #[test]
+    fn parallel_clauses_become_bullets() {
+        assert_eq!(
+            run(
+                implicit_lists,
+                "I need to make some changes in the monopoly game. I need a bigger board, I need multiplayer, \
+                 I need audio chat, and I think I need an Urdu version of the game."
+            ),
+            "I need to make some changes in the monopoly game:\n- I need a bigger board\n- I need multiplayer\n\
+             - I need audio chat\n- I think I need an Urdu version of the game"
+        );
+    }
+
+    #[test]
+    fn announced_lists_become_bullets() {
+        assert_eq!(
+            run(
+                implicit_lists,
+                "I really like the game, but make the following changes. Make the board smaller. \
+                 Add better animations. Things should feel smoother."
+            ),
+            "I really like the game, but make the following changes:\n- Make the board smaller\n\
+             - Add better animations\n- Things should feel smoother"
+        );
+        assert_eq!(
+            run(implicit_lists, "Here is what I need: the report is late. The client called. Send it today."),
+            "Here is what I need:\n- The report is late\n- The client called\n- Send it today"
+        );
+    }
+
+    #[test]
+    fn repeated_openings_across_sentences() {
+        assert_eq!(
+            run(
+                implicit_lists,
+                "Some notes. We should fix the login. We should update the docs. We should ship on Friday. Thanks."
+            ),
+            "Some notes:\n- We should fix the login\n- We should update the docs\n- We should ship on Friday\n\nThanks."
+        );
+    }
+
+    #[test]
+    fn colon_lists_of_short_items() {
+        assert_eq!(
+            run(implicit_lists, "I need three things: milk, eggs and bread."),
+            "I need three things:\n- Milk\n- Eggs\n- Bread"
+        );
+    }
+
+    #[test]
+    fn ordinary_prose_stays_prose() {
+        for s in [
+            "I like apples, oranges, and pears.",
+            "I think so, I guess, maybe we can.",
+            "We should go. We should probably eat first. Then a film.",
+            "Make the board smaller and the effects larger.",
+            "The time is: 3 pm.",
+            "I need a bigger board, I need multiplayer.",
+            "Can you check the following? Is it ready? Did they pay?",
+        ] {
+            assert_eq!(run(implicit_lists, s), s, "{s}");
+        }
     }
 
     // Paragraphs

@@ -230,6 +230,7 @@ pub fn process(raw: &str, settings: &TextSettings, ctx: &SnippetContext) -> Stri
     }
     if smart_on {
         tokens = smart::lists(tokens);
+        tokens = smart::implicit_lists(tokens);
         tokens = smart::paragraphs(tokens);
         tokens = match settings.app {
             AppKind::Email => smart::email(tokens),
