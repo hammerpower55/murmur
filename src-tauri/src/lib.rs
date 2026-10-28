@@ -2,7 +2,9 @@ mod audio;
 mod dictation;
 mod engine;
 mod hotkey;
+mod inject;
 mod paths;
+mod text;
 
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};

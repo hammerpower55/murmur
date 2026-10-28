@@ -17,7 +17,9 @@ use crate::engine::whisper::{
 use crate::engine::{has_arabic_script, EngineOptions, SpeechEngine};
 use crate::hotkey::listener::{self, Combo, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
+use crate::inject::{focus, paste};
 use crate::paths;
+use crate::text::{self, snippets::SnippetContext, TextSettings};
 
 /// Recordings shorter than this are discarded.
 const MIN_AUDIO_MS: u64 = 300;
@@ -56,6 +58,11 @@ pub fn spawn(app: AppHandle) -> Result<()> {
                 engine: None,
                 engine_rx: Some(engine_rx),
                 ignore_before: None,
+                // Dictionary, snippets and toggles load from settings in Phase 8.
+                text: TextSettings {
+                    roman_urdu: ROMAN_URDU_MIXING,
+                    ..TextSettings::default()
+                },
             }
             .run(rx)
         })
@@ -134,6 +141,7 @@ struct Controller {
     /// are dropped, so a press during Processing does not start a recording
     /// late.
     ignore_before: Option<Instant>,
+    text: TextSettings,
 }
 
 impl Controller {
@@ -229,13 +237,13 @@ impl Controller {
                         if save_fixture(&rec) {
                             return Some(Input::Finished);
                         }
-                        let result = self.transcribe(&rec);
+                        let result = self.dictate(&rec);
                         self.ignore_before = Some(Instant::now());
                         match result {
                             Ok(true) => Some(Input::Finished),
                             Ok(false) => Some(Input::Discarded),
                             Err(err) => {
-                                log::error!("could not transcribe: {err:#}");
+                                log::error!("dictation failed: {err:#}");
                                 Some(Input::Failed)
                             }
                         }
@@ -254,9 +262,56 @@ impl Controller {
         }
     }
 
-    /// Runs the engine and prints the result. Returns false if nothing was
-    /// said. The text pipeline and pasting come in Phase 3.
-    fn transcribe(&mut self, rec: &Recording) -> Result<bool> {
+    /// Transcribes, cleans up and pastes one recording into the app that had
+    /// focus when the hotkey was released. Returns false if nothing was said.
+    fn dictate(&mut self, rec: &Recording) -> Result<bool> {
+        let target = focus::foreground();
+        let raw = self.transcribe(rec)?;
+        if raw.trim().is_empty() {
+            return Ok(false);
+        }
+
+        let clipboard = if self
+            .text
+            .snippets
+            .iter()
+            .any(|s| s.text.contains("{clipboard}"))
+        {
+            arboard::Clipboard::new()
+                .and_then(|mut c| c.get_text())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let ctx = SnippetContext::now(clipboard);
+        let text = text::process(&raw, &self.text, &ctx);
+        if text.trim().is_empty() {
+            log::info!("nothing left after clean up");
+            return Ok(false);
+        }
+
+        let started = Instant::now();
+        paste::paste(&text, &target)?;
+        log::info!(
+            "pasted {} chars into {} in {} ms{}",
+            text.chars().count(),
+            if target.exe.is_empty() {
+                "unknown app"
+            } else {
+                &target.exe
+            },
+            started.elapsed().as_millis(),
+            if target.is_terminal() {
+                " (terminal)"
+            } else {
+                ""
+            }
+        );
+        Ok(true)
+    }
+
+    /// Runs the engine and returns its raw text.
+    fn transcribe(&mut self, rec: &Recording) -> Result<String> {
         let engine = self.engine()?;
         let transcript = engine.transcribe(&rec.samples, Some(LANGUAGE))?;
         let audio_ms = rec.duration_ms();
@@ -271,8 +326,8 @@ impl Controller {
         if has_arabic_script(&transcript.text) {
             log::warn!("transcript contains Arabic script");
         }
-        log::info!("text: {}", transcript.text);
-        Ok(!transcript.text.trim().is_empty())
+        log::info!("raw text: {}", transcript.text);
+        Ok(transcript.text)
     }
 
     /// The loaded engine, waiting for the background load if it is still

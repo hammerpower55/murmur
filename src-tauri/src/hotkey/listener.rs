@@ -29,7 +29,7 @@ pub type Key = VIRTUAL_KEY;
 /// does not open the Start menu or focus a menu bar.
 const MASK_KEY: Key = VIRTUAL_KEY(0xE8);
 /// Tags input Murmur injects so the hook can ignore it.
-const MURMUR_INPUT_TAG: usize = 0x4D55_524D; // "MURM"
+pub(crate) const MURMUR_INPUT_TAG: usize = 0x4D55_524D; // "MURM"
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyEvent {
