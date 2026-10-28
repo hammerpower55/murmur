@@ -36,9 +36,9 @@ function grow(order: number) {
 
 function Card({ label, value, detail }: { label: string; value: ReactNode; detail?: string }) {
   return (
-    <div className="surface rounded-xl px-4 py-3">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-1 truncate text-2xl font-semibold text-zinc-100 tabular-nums">{value}</p>
+    <div className="surface rounded-xl px-5 py-4">
+      <p className="stat-label">{label}</p>
+      <p className="stat-value mt-2 truncate">{value}</p>
       {detail && <p className="mt-0.5 text-xs text-zinc-500">{detail}</p>}
     </div>
   );
@@ -46,8 +46,8 @@ function Card({ label, value, detail }: { label: string; value: ReactNode; detai
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="surface rounded-xl px-4 pb-3 pt-4">
-      <h2 className="text-sm font-medium text-zinc-300">{title}</h2>
+    <section className="surface rounded-xl px-5 pb-4 pt-5">
+      <h2 className="section-title">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -107,8 +107,8 @@ export function Insights() {
 
   if (data.totalDictations === 0) {
     return (
-      <section className="mx-auto max-w-4xl px-6 py-8">
-        <h1 className="text-xl font-semibold text-zinc-100">Insights</h1>
+      <section className="page page-wide">
+        <h1 className="page-title">Insights</h1>
         <Empty>Dictate a few times to see your insights.</Empty>
       </section>
     );
@@ -120,8 +120,8 @@ export function Insights() {
   const apps = data.wordsByApp.map((a) => ({ app: a.app ?? "", words: a.words }));
 
   return (
-    <section className="stagger mx-auto max-w-4xl px-6 py-8">
-      <h1 className="text-xl font-semibold text-zinc-100">Insights</h1>
+    <section className="stagger page page-wide">
+      <h1 className="page-title">Insights</h1>
 
       <div className="stagger mt-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Card

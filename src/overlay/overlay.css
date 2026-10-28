@@ -1,3 +1,11 @@
+/* Same interface font as the main window, bundled for offline use. */
+@font-face {
+  font-family: "Onest";
+  src: url("../assets/fonts/Onest-Variable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: block;
+}
+
 /* The floating pill (spec 6.4). Dark only. Transforms and opacity only, so
    animation never triggers layout. */
 
@@ -22,7 +30,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: "Onest", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
 .pill {

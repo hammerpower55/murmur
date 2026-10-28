@@ -32,7 +32,7 @@ export function TranscriptItem({ row, onDelete }: Props) {
   };
 
   return (
-    <article className={`surface lift group rounded-xl px-4 py-3 ${fresh ? "fresh" : ""}`}>
+    <article className={`surface lift group rounded-xl px-5 py-4 ${fresh ? "fresh" : ""}`}>
       <div className="flex items-center gap-2 text-xs text-zinc-500">
         <AppIcon app={row.appName} />
         <span className="truncate text-zinc-400" title={row.appTitle ?? undefined}>

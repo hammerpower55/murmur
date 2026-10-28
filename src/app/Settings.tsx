@@ -199,8 +199,8 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
   };
 
   return (
-    <section className="stagger mx-auto max-w-3xl px-6 py-8 pb-24">
-      <h1 className="text-xl font-semibold text-zinc-100">Settings</h1>
+    <section className="stagger page pb-24">
+      <h1 className="page-title">Settings</h1>
 
       <Section title="General">
         <Row label="Launch at login">

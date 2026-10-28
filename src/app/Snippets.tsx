@@ -13,9 +13,9 @@ export function Snippets() {
   if (!data) return null;
 
   return (
-    <section className="stagger mx-auto max-w-3xl px-6 py-8">
+    <section className="stagger page">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-zinc-100">Snippets</h1>
+        <h1 className="page-title">Snippets</h1>
         <CsvButtons kind="snippets" onImported={() => void load()} />
       </div>
 

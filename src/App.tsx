@@ -43,8 +43,8 @@ function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
   }, [marker, placed]);
 
   return (
-    <nav className="flex w-52 shrink-0 flex-col border-r border-white/6 bg-zinc-950/40 px-3 py-5">
-      <span className="flex items-center gap-2.5 px-3 pb-5 text-sm font-semibold text-zinc-100">
+    <nav className="flex w-56 shrink-0 flex-col border-r border-white/6 bg-zinc-950/40 px-4 py-6">
+      <span className="flex items-center gap-3 px-3 pb-7 font-display text-[1.25rem] leading-none text-zinc-50">
         <Wave activity={activity} />
         {APP_NAME}
       </span>
@@ -68,7 +68,7 @@ function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
             data-nav={item.id}
             onClick={() => go(item.id)}
             aria-current={screen === item.id ? "page" : undefined}
-            className={`relative rounded-md px-3 py-2 pl-5 text-left text-sm ${
+            className={`relative rounded-md px-3 py-2.5 pl-6 text-left text-sm ${
               screen === item.id ? "text-zinc-100" : "text-zinc-400 hover:bg-white/4 hover:text-zinc-200"
             }`}
           >

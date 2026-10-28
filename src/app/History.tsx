@@ -38,8 +38,8 @@ export function History() {
   };
 
   return (
-    <section className="stagger mx-auto max-w-3xl px-6 py-8">
-      <h1 className="text-xl font-semibold text-zinc-100">History</h1>
+    <section className="stagger page">
+      <h1 className="page-title">History</h1>
 
       <input
         value={query}

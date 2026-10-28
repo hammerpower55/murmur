@@ -35,14 +35,14 @@ export function Onboarding({ onDone, onSeeAllModels }: Props) {
   const anyActive = view.active !== null;
 
   return (
-    <section className="stagger mx-auto flex max-w-xl flex-col gap-8 px-6 py-16">
+    <section className="stagger mx-auto flex max-w-xl flex-col gap-10 px-10 py-16">
       <div className="flex flex-col items-start gap-6">
         <Wave activity={activity === "idle" ? "recording" : activity} size="lg" />
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">Welcome to {APP_NAME}</h1>
+        <h1 className="page-title">Welcome to {APP_NAME}</h1>
       </div>
 
       <div>
-        <h2 className="text-sm font-medium text-zinc-300">Microphone</h2>
+        <h2 className="section-title">Microphone</h2>
         {mic.state === "checking" && <p className="mt-2 animate-breathe text-sm text-zinc-500">Checking the microphone</p>}
         {mic.state === "ok" && <p className="mt-2 animate-pop text-sm text-zinc-300">Microphone ready</p>}
         {mic.state === "blocked" && (
@@ -67,7 +67,7 @@ export function Onboarding({ onDone, onSeeAllModels }: Props) {
       </div>
 
       <div>
-        <h2 className="text-sm font-medium text-zinc-300">Speech model</h2>
+        <h2 className="section-title">Speech model</h2>
         <div className="mt-3">
           {model && (
             <ModelCard

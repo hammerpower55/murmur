@@ -26,8 +26,8 @@ export function Models() {
   const romanUrduHint = view.romanUrdu && active !== undefined && active.family !== "whisper";
 
   return (
-    <section className="stagger mx-auto max-w-3xl px-6 py-8">
-      <h1 className="text-xl font-semibold text-zinc-100">Models</h1>
+    <section className="stagger page">
+      <h1 className="page-title">Models</h1>
 
       {romanUrduHint && (
         <p className="mt-4 animate-pop rounded-lg border border-accent/25 bg-accent/8 px-3 py-2 text-sm text-accent-strong">

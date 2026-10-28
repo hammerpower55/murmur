@@ -20,6 +20,8 @@ cpal, Apache 2.0. rodio, rubato, ringbuf and arboard, MIT or Apache 2.0.
 enigo and realfft, MIT License.
 rusqlite, MIT License, with SQLite, public domain.
 React, recharts, zustand and Tailwind CSS, MIT License.
+Onest (The Onest Project Authors) and Young Serif (The Young Serif Project Authors),
+  SIL Open Font License 1.1, bundled in src/assets/fonts with their licences.
 
 Speech models are downloaded by the user and are not distributed with Murmur.
 Each is subject to its own licence:

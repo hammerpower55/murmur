@@ -49,7 +49,7 @@ function Editor({
     if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement)) void submit();
   };
   return (
-    <div className="flex animate-pop flex-col gap-2 px-4 py-3" onKeyDown={onKey}>
+    <div className="flex animate-pop flex-col gap-3 px-5 py-4" onKeyDown={onKey}>
       <input
         autoFocus
         aria-label={fields[0].label}
@@ -161,7 +161,7 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
             <div
               // Keyed by content so deleting one row does not replay the rest.
               key={`${p[0]}\u0000${p[1]}`}
-              className="group flex animate-rise items-start gap-4 px-4 py-2.5 transition-colors duration-200 hover:bg-white/[0.025]"
+              className="group flex animate-rise items-start gap-6 px-5 py-3 transition-colors duration-200 hover:bg-white/[0.025]"
               style={{ animationDelay: `${Math.min(i, 10) * 25}ms` }}
             >
               <span className="w-2/5 shrink-0 truncate text-sm text-zinc-100" title={p[0]}>

@@ -26,8 +26,8 @@ export function Dictionary() {
   if (!data) return null;
 
   return (
-    <section className="stagger mx-auto max-w-3xl px-6 py-8">
-      <h1 className="text-xl font-semibold text-zinc-100">Dictionary</h1>
+    <section className="stagger page">
+      <h1 className="page-title">Dictionary</h1>
 
       <div className="mt-6 flex items-center gap-1">
         <Tabs

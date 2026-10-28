@@ -2,7 +2,41 @@
 
 /* Design context: .impeccable.md. Quiet, warm, attentive. */
 
+/* Bundled so the app stays offline. Both SIL Open Font License, see
+   src/assets/fonts/*-OFL.txt. Onest for the interface, Young Serif for
+   page titles only. */
+@font-face {
+  font-family: "Onest";
+  src: url("./assets/fonts/Onest-Variable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Young Serif";
+  src: url("./assets/fonts/YoungSerif-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 @theme {
+  --font-sans: "Onest", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Young Serif", Georgia, serif;
+
+  /* Type scale: five steps, each at least a quarter apart in feel. */
+  --text-caption: 0.75rem; /* 12: meta, labels */
+  --text-caption--line-height: 1.45;
+  --text-body: 0.875rem; /* 14: everything you read */
+  --text-body--line-height: 1.6;
+  --text-heading: 1rem; /* 16: section headings */
+  --text-heading--line-height: 1.4;
+  --text-stat: 1.75rem; /* 28: numbers on cards */
+  --text-stat--line-height: 1.1;
+  --text-title: 2rem; /* 32: page titles, in Young Serif */
+  --text-title--line-height: 1.15;
+
   /* Warm neutrals: Tailwind's zinc scale re-tinted toward the amber of the
      app icon, so every zinc class in the app turns warm at once. */
   --color-zinc-50: oklch(0.985 0.002 80);
@@ -115,6 +149,10 @@ body,
 body {
   background: var(--color-zinc-950);
   color: var(--color-zinc-100);
+  font-family: var(--font-sans);
+  /* Light text on dark reads thinner; a touch more leading helps. */
+  line-height: 1.6;
+  font-feature-settings: "kern", "calt";
 }
 
 @layer base {
@@ -146,6 +184,50 @@ body {
 }
 
 @layer components {
+  /* Page frame on a 4 px grid: generous edges, more room below than above. */
+  .page {
+    margin-inline: auto;
+    width: 100%;
+    max-width: 48rem;
+    padding: 2.5rem 2.5rem 4rem;
+  }
+  .page-wide {
+    max-width: 60rem;
+  }
+
+  .page-title {
+    font-family: var(--font-display);
+    font-size: var(--text-title);
+    line-height: var(--text-title--line-height);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--color-zinc-50);
+  }
+
+  .section-title {
+    font-size: var(--text-heading);
+    line-height: var(--text-heading--line-height);
+    font-weight: 550;
+    letter-spacing: -0.005em;
+    color: var(--color-zinc-200);
+  }
+
+  .stat-label {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-zinc-400);
+  }
+  .stat-value {
+    font-size: var(--text-stat);
+    line-height: var(--text-stat--line-height);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    /* Proportional figures: Onest's tabular 1 leaves a gap ("1 2 days")
+       and these numbers never sit in columns. */
+    font-variant-numeric: proportional-nums;
+    color: var(--color-zinc-50);
+  }
+
   /* A card lit from above: faint top highlight, soft layered shadow. */
   .surface {
     border: 1px solid oklch(1 0 0 / 0.07);
