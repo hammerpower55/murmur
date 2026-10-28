@@ -77,7 +77,7 @@ fn capitalise(tokens: &mut [Token]) {
 }
 
 /// Uppercases the first letter, leaving handles, links and numbers alone.
-fn capitalise_word(w: &str) -> String {
+pub(crate) fn capitalise_word(w: &str) -> String {
     if w.contains('@') || w.contains("://") || w.starts_with("www.") {
         return w.to_string();
     }

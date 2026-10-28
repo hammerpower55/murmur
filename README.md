@@ -11,6 +11,7 @@ Hold a hotkey, speak, release, and clean text is pasted into whatever app has fo
 - **Push to talk.** Hold Ctrl + Win, speak, let go. Double tap for hands free, press again to stop, Escape to cancel. Both hotkeys can be changed.
 - **Pastes anywhere.** Clipboard paste with your old clipboard restored afterwards; terminals get Ctrl + Shift + V.
 - **Clean text.** Filler words and stutters removed, sentences capitalised, your own dictionary and snippets applied, optional spoken punctuation.
+- **Smart formatting.** Say "one, milk, two, eggs" and get a numbered list. Correct yourself mid sentence ("at 2, actually 3") and only the correction is kept. "New paragraph" breaks the text, emails get their greeting and sign off on separate lines, and short chat messages lose the stiff closing full stop.
 - **English mixed with Roman Urdu.** Whisper keeps Urdu words in Latin script, and a spelling table makes them consistent.
 - **Four model families.** Whisper, Parakeet, Moonshine and SenseVoice, downloaded from inside the app and switched without a restart.
 - **History and insights.** Every transcript is searchable; the dashboard shows words per day, speaking speed, time saved, top words and apps.

@@ -82,6 +82,11 @@ function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
 
 function App() {
   const [screen, setScreen] = useState<Screen>("loading");
+  const main = useRef<HTMLElement>(null);
+  // A new page starts at the top, not where the last one was scrolled to.
+  useLayoutEffect(() => {
+    main.current?.scrollTo({ top: 0 });
+  }, [screen]);
 
   useEffect(() => {
     subscribeModels();
@@ -109,7 +114,7 @@ function App() {
   return (
     <div className="flex h-full">
       <Nav screen={screen} go={setScreen} />
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      <main ref={main} className="min-w-0 flex-1 overflow-y-auto">
         {/* Keyed by page so each visit plays its entrance. */}
         <div key={screen} className="animate-page">
           {screen === "home" && <Home onSeeHistory={() => setScreen("history")} />}

@@ -1,7 +1,6 @@
 //! Every #[tauri::command]. Errors come back as one line for the UI.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
@@ -16,7 +15,6 @@ use crate::db::stats::HomeSummary;
 use crate::db::transcripts::TranscriptRow;
 use crate::db::Db;
 use crate::dictation::{self, Dictation};
-use crate::hotkey::keys;
 use crate::inject::icons;
 use crate::models::manager::{ModelManager, ModelsView};
 use crate::overlay::events::Style;
@@ -222,18 +220,17 @@ pub fn test_microphone(dictation: State<Dictation>, on: bool) {
     dictation.test_microphone(on);
 }
 
-/// Swallows the next key combination and returns its key names. None when
-/// cancelled with Escape or after 10 seconds.
+/// Settings is recording a hotkey in the page: the global hook lets every
+/// key through meanwhile, so pressing the current hotkey does not dictate.
+/// `keys` is what the page recorded when it finishes (None if cancelled).
 #[tauri::command]
-pub async fn capture_hotkey(dictation: State<'_, Dictation>) -> Result<Option<Vec<String>>, String> {
-    let control = dictation.hotkeys().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        control
-            .capture(Duration::from_secs(10))
-            .map(|k| keys::names_of(&k))
-    })
-    .await
-    .map_err(|_| "Could not record the hotkey.".to_string())
+pub fn hotkey_recording(dictation: State<Dictation>, on: bool, keys: Option<Vec<String>>) {
+    dictation.hotkeys().set_suspended(on);
+    match (on, keys) {
+        (true, _) => log::info!("recording a hotkey"),
+        (false, Some(k)) => log::info!("hotkey recorded: {}", k.join(" + ")),
+        (false, None) => log::info!("hotkey recording cancelled"),
+    }
 }
 
 #[tauri::command]

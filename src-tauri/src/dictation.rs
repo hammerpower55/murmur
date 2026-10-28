@@ -24,6 +24,7 @@ use crate::models::catalog::Family;
 use crate::overlay::events::{Overlay, Phase, Style};
 use crate::settings::{self, Settings};
 use crate::sound::player::{Cue, SoundPlayer};
+use crate::text::smart::AppKind;
 use crate::text::store::TextStore;
 use crate::text::{self, snippets::SnippetContext, TextSettings};
 
@@ -407,6 +408,8 @@ impl Controller {
             voice_punctuation: prefs.voice_punctuation,
             add_trailing_space: prefs.add_trailing_space,
             roman_urdu: prefs.roman_urdu,
+            smart_formatting: prefs.smart_formatting,
+            app: AppKind::detect(&target.exe, &target.title),
             dictionary: user.dictionary,
             snippets: user.snippets,
             roman_urdu_map: user.roman_urdu_map,

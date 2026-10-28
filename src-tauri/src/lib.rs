@@ -86,7 +86,7 @@ pub fn run() {
             commands::set_settings,
             commands::list_microphones,
             commands::test_microphone,
-            commands::capture_hotkey,
+            commands::hotkey_recording,
             commands::overlay_style,
             commands::open_data_folder,
             commands::open_licences,
@@ -100,6 +100,7 @@ pub fn run() {
             commands::import_csv,
         ])
         .on_window_event(|window, event| {
+
             // Closing the main window hides it to the tray when that is on;
             // otherwise it quits, since the overlay window never closes.
             if let (WindowEvent::CloseRequested { api, .. }, "main") = (event, window.label()) {

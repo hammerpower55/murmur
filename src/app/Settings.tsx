@@ -12,7 +12,7 @@ import {
 } from "../components/controls";
 import { api, errorText, events, type OverlayPosition, type Settings as Prefs } from "../lib/api";
 import { SOURCE_URL } from "../lib/app";
-import { hotkeyLabel, keyLabel } from "../lib/keys";
+import { hotkeyLabel, keyLabel, recordHotkey } from "../lib/keys";
 import { languagesFor } from "../lib/languages";
 import { useInsights } from "../store/insights";
 import { useModels } from "../store/models";
@@ -60,12 +60,17 @@ function HotkeyRow({
   const [capturing, setCapturing] = useState(false);
   const capture = async () => {
     setCapturing(true);
+    // Focus leaves the button so Space or Enter is recorded, not a click.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await api.hotkeyRecording(true).catch(() => {});
+    let pressed: string[] | null = null;
     try {
-      const pressed = await api.captureHotkey();
-      if (pressed) onChange(pressed);
+      pressed = await recordHotkey();
     } finally {
+      await api.hotkeyRecording(false, pressed).catch(() => {});
       setCapturing(false);
     }
+    if (pressed) onChange(pressed);
   };
   return (
     <Row label={label}>
@@ -351,6 +356,9 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
       </Section>
 
       <Section title="Text">
+        <Row label="Smart formatting">
+          <Toggle label="Smart formatting" checked={s.smartFormatting} onChange={(v) => set({ smartFormatting: v })} />
+        </Row>
         <Row label="Remove filler words">
           <Toggle label="Remove filler words" checked={s.removeFillers} onChange={(v) => set({ removeFillers: v })} />
         </Row>

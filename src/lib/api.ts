@@ -104,6 +104,7 @@ export interface Settings {
   removeFillers: boolean;
   addTrailingSpace: boolean;
   voicePunctuation: boolean;
+  smartFormatting: boolean;
   typingWpm: number;
   keepAudioClips: boolean;
 }
@@ -152,8 +153,8 @@ export const api = {
   setSettings: (next: Settings) => invoke<Settings>("set_settings", { next }),
   listMicrophones: () => invoke<string[]>("list_microphones"),
   testMicrophone: (on: boolean) => invoke<void>("test_microphone", { on }),
-  /** Resolves with the keys pressed, or null if cancelled. */
-  captureHotkey: () => invoke<string[] | null>("capture_hotkey"),
+  /** The global hook stands aside while Settings records a hotkey. */
+  hotkeyRecording: (on: boolean, keys: string[] | null = null) => invoke<void>("hotkey_recording", { on, keys }),
   openDataFolder: () => invoke<void>("open_data_folder"),
   openLicences: () => invoke<void>("open_licences"),
   appInfo: () => invoke<{ name: string; version: string }>("app_info"),

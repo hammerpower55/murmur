@@ -61,6 +61,8 @@ pub struct Settings {
     pub remove_fillers: bool,
     pub add_trailing_space: bool,
     pub voice_punctuation: bool,
+    /// Lists, corrections, spoken breaks, email and chat layout.
+    pub smart_formatting: bool,
     pub typing_wpm: u32,
     // Privacy
     pub keep_audio_clips: bool,
@@ -88,6 +90,7 @@ impl Default for Settings {
             remove_fillers: true,
             add_trailing_space: true,
             voice_punctuation: false,
+            smart_formatting: true,
             typing_wpm: 40,
             keep_audio_clips: false,
         }
@@ -259,6 +262,7 @@ mod tests {
         assert_eq!(s.unload_after_minutes, 10);
         assert!(!s.keep_audio_clips);
         assert!(s.remove_fillers && s.add_trailing_space && !s.voice_punctuation);
+        assert!(s.smart_formatting);
         assert!(s.validate().is_ok());
     }
 

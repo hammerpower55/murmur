@@ -77,7 +77,9 @@ fn slot(name: &str) -> Option<Vec<Key>> {
     None
 }
 
-/// The stored name for a key the hook saw.
+/// The stored name for a virtual key. Settings records hotkeys in the page
+/// (src/lib/keys.ts names keys the same way); this keeps the two in step.
+#[cfg(test)]
 pub fn name_of(key: Key) -> String {
     let vk = key.0;
     if let Some((name, _)) = MODIFIERS.iter().find(|(_, vks)| vks.contains(&vk)) {
@@ -96,6 +98,7 @@ pub fn name_of(key: Key) -> String {
 
 /// Key names in a stable order: modifiers first (Ctrl, Alt, Shift, Win),
 /// then the rest in the order pressed, without repeats.
+#[cfg(test)]
 pub fn names_of(pressed: &[Key]) -> Vec<String> {
     let names: Vec<String> = pressed.iter().map(|k| name_of(*k)).collect();
     let mut out: Vec<String> = MODIFIERS

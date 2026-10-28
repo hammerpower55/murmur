@@ -7,9 +7,9 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -172,15 +172,16 @@ fn is_menu_key(key: Key) -> bool {
 }
 
 /// Changes the running hook from other threads: new hotkeys, pause, and
-/// recording a hotkey from Settings. The hook proc only ever try_locks, so a
-/// change can never make it wait.
+/// standing aside while Settings records a hotkey. The hook proc only ever
+/// try_locks, so a change can never make it wait.
 #[derive(Default)]
 pub struct HotkeyControl {
     version: AtomicU64,
     pending: Mutex<Option<(Combo, Option<Combo>)>>,
+    /// "Pause hotkeys" in the tray.
     paused: AtomicBool,
-    capturing: AtomicBool,
-    capture: Mutex<Option<Sender<Vec<Key>>>>,
+    /// Settings is recording a hotkey; every key passes through to it.
+    suspended: AtomicBool,
 }
 
 impl HotkeyControl {
@@ -204,26 +205,13 @@ impl HotkeyControl {
         self.paused.load(Ordering::SeqCst)
     }
 
-    /// Swallows every key until a combination is pressed and released, and
-    /// returns it. Escape on its own, or nothing within `timeout`, gives None.
-    pub fn capture(&self, timeout: Duration) -> Option<Vec<Key>> {
-        let (tx, rx) = mpsc::channel();
-        *self.capture.lock().ok()? = Some(tx);
-        self.capturing.store(true, Ordering::SeqCst);
-        let keys = rx.recv_timeout(timeout).ok();
-        self.capturing.store(false, Ordering::SeqCst);
-        if let Ok(mut c) = self.capture.lock() {
-            *c = None;
-        }
-        keys.filter(|k| !k.is_empty())
+    /// While Settings records a hotkey the hook lets every key through, so
+    /// pressing the current hotkey records it instead of starting a
+    /// dictation. Recording itself happens in the page: keys typed into
+    /// Murmur's own window go to WebView2 and never reach a low level hook.
+    pub fn set_suspended(&self, suspended: bool) {
+        self.suspended.store(suspended, Ordering::SeqCst);
     }
-}
-
-/// Keys seen while recording a hotkey.
-#[derive(Default)]
-struct Capture {
-    held: Vec<Key>,
-    seen: Vec<Key>,
 }
 
 /// Everything the hook proc needs. Lives in a thread local on the hook
@@ -236,7 +224,6 @@ struct Hook {
     tx: Sender<(HotkeyEvent, Instant)>,
     control: Arc<HotkeyControl>,
     version: u64,
-    capture: Capture,
 }
 
 impl Hook {
@@ -255,45 +242,6 @@ impl Hook {
         }
     }
 
-    /// Recording a hotkey: every key is swallowed so nothing types into the
-    /// focused app. Returns true (swallow) for keys it handled.
-    fn on_capture_key(&mut self, key: Key, down: bool) -> bool {
-        let c = &mut self.capture;
-        if down {
-            if key == VK_ESCAPE && c.seen.is_empty() {
-                self.finish_capture(Vec::new());
-                return true;
-            }
-            if !c.held.contains(&key) {
-                c.held.push(key);
-            }
-            if !c.seen.contains(&key) {
-                c.seen.push(key);
-            }
-            return true;
-        }
-        if !c.held.contains(&key) {
-            // Pressed before recording began: let its release through.
-            return false;
-        }
-        c.held.retain(|k| *k != key);
-        if c.held.is_empty() && !c.seen.is_empty() {
-            let keys = std::mem::take(&mut c.seen);
-            self.finish_capture(keys);
-        }
-        true
-    }
-
-    fn finish_capture(&mut self, keys: Vec<Key>) {
-        self.capture = Capture::default();
-        self.control.capturing.store(false, Ordering::SeqCst);
-        if let Ok(c) = self.control.capture.try_lock() {
-            if let Some(tx) = c.as_ref() {
-                let _ = tx.send(keys);
-            }
-        }
-    }
-
     /// Returns true if the key must be swallowed.
     fn on_key(&mut self, key: Key, down: bool) -> bool {
         // Stamped here, not when the controller gets to it, so a busy
@@ -301,14 +249,8 @@ impl Hook {
         let now = Instant::now();
 
         self.reload();
-        if self.control.capturing.load(Ordering::SeqCst) {
-            return self.on_capture_key(key, down);
-        }
-        if !self.capture.seen.is_empty() || !self.capture.held.is_empty() {
-            // Recording timed out mid press.
-            self.capture = Capture::default();
-        }
-        if self.control.paused() && !self.recording.load(Ordering::SeqCst) {
+        let standing_aside = self.control.paused() || self.control.suspended.load(Ordering::SeqCst);
+        if standing_aside && !self.recording.load(Ordering::SeqCst) {
             return false;
         }
 
@@ -420,7 +362,6 @@ pub fn spawn(
                     tx,
                     control,
                     version,
-                    capture: Capture::default(),
                 });
             });
 
@@ -648,7 +589,6 @@ mod tests {
             tx,
             control: HotkeyControl::new(),
             version: 0,
-            capture: Capture::default(),
         };
         (hook, recording, rx)
     }
@@ -675,37 +615,20 @@ mod tests {
     }
 
     #[test]
-    fn capture_swallows_keys_and_returns_the_combination() {
-        let (mut hook, _, _rx) = hook();
-        let control = hook.control.clone();
-        let waiter = std::thread::spawn(move || control.capture(Duration::from_secs(5)));
-        while !hook.control.capturing.load(Ordering::SeqCst) {
-            std::thread::yield_now();
-        }
-        // Released before recording began: passes through.
-        assert!(!hook.on_key(VK_RSHIFT, false));
-        assert!(hook.on_key(VK_LMENU, true));
-        assert!(hook.on_key(VIRTUAL_KEY(0x78), true)); // F9
-        assert!(hook.on_key(VIRTUAL_KEY(0x78), false));
-        assert!(hook.on_key(VK_LMENU, false));
-        assert_eq!(waiter.join().unwrap(), Some(vec![VK_LMENU, VIRTUAL_KEY(0x78)]));
-        // Back to normal: Ctrl + Win fires again.
+    fn suspended_hook_lets_every_key_reach_settings() {
+        let (mut hook, _, rx) = hook();
+        hook.control.set_suspended(true);
+        // Pressing the current hotkey records it instead of dictating.
+        assert!(!hook.on_key(VK_LCONTROL, true));
+        assert!(!hook.on_key(VK_LWIN, true));
+        assert!(rx.try_recv().is_err());
+        hook.on_key(VK_LWIN, false);
+        hook.on_key(VK_LCONTROL, false);
+        hook.control.set_suspended(false);
         assert!(!hook.on_key(VK_LCONTROL, true));
         assert!(hook.on_key(VK_LWIN, true));
+        assert_eq!(rx.try_recv().unwrap().0, HotkeyEvent::MainDown);
     }
-
-    #[test]
-    fn escape_cancels_a_capture() {
-        let (mut hook, _, _rx) = hook();
-        let control = hook.control.clone();
-        let waiter = std::thread::spawn(move || control.capture(Duration::from_secs(5)));
-        while !hook.control.capturing.load(Ordering::SeqCst) {
-            std::thread::yield_now();
-        }
-        assert!(hook.on_key(VK_ESCAPE, true));
-        assert_eq!(waiter.join().unwrap(), None);
-    }
-
     #[test]
     fn escape_passes_through_when_not_recording() {
         let (mut h, _, rx) = hook();
