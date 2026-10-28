@@ -25,3 +25,6 @@ dist-ssr
 
 # Fetched by scripts/fetch_onnxruntime.ps1
 src-tauri/vendor/
+
+# Built by scripts/package_portable.ps1
+dist-release/

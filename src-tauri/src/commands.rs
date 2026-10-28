@@ -1,6 +1,5 @@
 //! Every #[tauri::command]. Errors come back as one line for the UI.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -260,8 +259,8 @@ pub fn open_licences(app: AppHandle) -> Result<(), String> {
         .ok()
         .filter(|p| p.is_file());
     #[cfg(debug_assertions)]
-    let bundled =
-        bundled.or_else(|| Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../NOTICE")));
+    let bundled = bundled
+        .or_else(|| Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../NOTICE")));
     let path = bundled.ok_or("The licence file is missing.")?;
     app.opener()
         .open_path(path.to_string_lossy(), Some("notepad.exe"))

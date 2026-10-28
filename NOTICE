@@ -12,6 +12,14 @@ whisper.cpp (https://github.com/ggml-org/whisper.cpp), MIT License, Copyright (c
 whisper-rs (https://github.com/tazz4843/whisper-rs), Unlicense.
 ONNX Runtime (https://github.com/microsoft/onnxruntime), MIT License, Copyright (c) Microsoft Corporation.
 ort (https://github.com/pykeio/ort), MIT or Apache 2.0.
+Tauri (https://github.com/tauri-apps/tauri), MIT or Apache 2.0.
+sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx), Apache 2.0, and FunASR
+  (https://github.com/modelscope/FunASR), MIT License. Murmur's SenseVoice
+  front end follows their feature pipeline.
+cpal, Apache 2.0. rodio, rubato, ringbuf and arboard, MIT or Apache 2.0.
+enigo and realfft, MIT License.
+rusqlite, MIT License, with SQLite, public domain.
+React, recharts, zustand and Tailwind CSS, MIT License.
 
 Speech models are downloaded by the user and are not distributed with Murmur.
 Each is subject to its own licence:

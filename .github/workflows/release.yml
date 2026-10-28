@@ -1,0 +1,108 @@
+# Builds the ARM64 installer and portable zip on a native Windows ARM64
+# runner and attaches both to a GitHub release when a v* tag is pushed.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Every downloaded tool is pinned and hash checked. Nothing here runs under
+# x64 emulation: LLVM and Ninja are their ARM64 builds, and the job fails if
+# any shipped binary is not ARM64.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  LLVM_VERSION: "23.1.4"
+  LLVM_SHA256: "b484f54264400f0a75b63704b1068da8086f0b14625575f6efea08813109b068"
+  NINJA_VERSION: "1.13.2"
+  NINJA_SHA256: "e52f0bdef9dfb1003229dbd6508a508c4073fd017247002adc66e5e806cb0391"
+
+jobs:
+  release:
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust for aarch64-pc-windows-msvc
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-pc-windows-msvc
+          rustup default stable
+          rustc -vV
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: LLVM (ARM64)
+        run: |
+          $msi = "$env:RUNNER_TEMP\LLVM-$env:LLVM_VERSION-woa64.msi"
+          curl.exe -L --fail -sS -o $msi "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-woa64.msi"
+          if ((Get-FileHash $msi -Algorithm SHA256).Hash -ne $env:LLVM_SHA256) { throw "LLVM checksum mismatch" }
+          Start-Process msiexec.exe -ArgumentList "/i", $msi, "/qn", "/norestart" -Wait
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & "C:\Program Files\LLVM\bin\clang-cl.exe" --version
+
+      - name: Ninja (ARM64)
+        run: |
+          $zip = "$env:RUNNER_TEMP\ninja-winarm64.zip"
+          curl.exe -L --fail -sS -o $zip "https://github.com/ninja-build/ninja/releases/download/v$env:NINJA_VERSION/ninja-winarm64.zip"
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:NINJA_SHA256) { throw "Ninja checksum mismatch" }
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\ninja"
+          "$env:RUNNER_TEMP\ninja" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: ONNX Runtime (ARM64)
+        run: ./scripts/fetch_onnxruntime.ps1
+
+      - name: Frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Tests
+        run: |
+          pnpm test
+          cd src-tauri
+          cargo test --locked
+
+      - name: Build installer
+        run: pnpm tauri build
+
+      - name: Portable zip
+        run: ./scripts/package_portable.ps1
+
+      - name: Check every binary is ARM64
+        run: |
+          ./scripts/verify_arm64.ps1 -AllowX86Installer `
+            src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis `
+            dist-release
+          # What the installer installs. $PLUGINSDIR holds NSIS's own x86
+          # plugins, which run inside the x86 setup stub and are never installed.
+          $payload = "$env:RUNNER_TEMP\installer-payload"
+          $setup = Get-ChildItem src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          & "C:\Program Files\7-Zip\7z.exe" x -y "-o$payload" $setup.FullName | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not unpack the installer" }
+          Remove-Item -Recurse -Force (Join-Path $payload '$PLUGINSDIR')
+          ./scripts/verify_arm64.ps1 $payload
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = @(Get-ChildItem src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe) +
+                   @(Get-ChildItem dist-release/*.zip)
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --generate-notes
+          }
+          gh release upload $env:GITHUB_REF_NAME $files.FullName --clobber
