@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use super::Token;
 
-const DEFAULT_TABLE: &str = include_str!("roman_urdu.json");
+pub const DEFAULT_TABLE: &str = include_str!("roman_urdu.json");
 
 /// Variant (lowercase) to canonical spelling.
 pub fn default_map() -> HashMap<String, String> {

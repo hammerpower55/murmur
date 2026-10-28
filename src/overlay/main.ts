@@ -1,6 +1,7 @@
 // The floating pill. Rust decides what to show and when (overlay-phase) and
 // streams the mic level (audio-level); this page only draws.
 
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { BAR_COUNT, MAX_HEIGHT, Wave } from "./wave";
 import "./overlay.css";
@@ -75,6 +76,16 @@ function setPhase(phase: Phase) {
   else stopDrawing();
 }
 
+interface Style {
+  barColour: string;
+}
+
+function applyStyle(style: Style) {
+  document.documentElement.style.setProperty("--bar-colour", style.barColour);
+}
+
+listen<Style>("overlay-style", (e) => applyStyle(e.payload));
+invoke<Style>("overlay_style").then(applyStyle, () => {});
 listen<Phase>("overlay-phase", (e) => setPhase(e.payload));
 listen<{ rms: number; peak: number }>("audio-level", (e) => {
   wave.push(e.payload.rms, performance.now());

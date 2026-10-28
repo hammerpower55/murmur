@@ -7,15 +7,15 @@
 //! 3. Greedy TDT decoding: the joint network predicts a token and how many
 //!    frames to skip, so most frames are never visited.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::path::Path;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 
+use super::onnx::{argmax, session};
 use super::{EngineOptions, Segment, SpeechEngine, Transcript};
 
 pub const PREPROCESSOR: &str = "nemo128.onnx";
@@ -29,31 +29,6 @@ const STATE_SHAPE: [usize; 3] = [2, 1, 640];
 const MAX_TOKENS_PER_STEP: usize = 10;
 /// The encoder subsamples 10 ms feature frames by 8.
 const FRAME_MS: u64 = 80;
-
-static RUNTIME_PATH: OnceLock<PathBuf> = OnceLock::new();
-static ENVIRONMENT: OnceLock<std::result::Result<ort::environment::Environment, String>> =
-    OnceLock::new();
-
-/// Where onnxruntime.dll lives. Set once at startup, before any load. The
-/// DLL is loaded from this exact path so the older copy Windows keeps in
-/// System32 is never picked up.
-pub fn set_runtime_path(path: PathBuf) {
-    let _ = RUNTIME_PATH.set(path);
-}
-
-fn environment() -> Result<&'static ort::environment::Environment> {
-    let env = ENVIRONMENT.get_or_init(|| {
-        let path = RUNTIME_PATH
-            .get()
-            .ok_or_else(|| "ONNX Runtime location not set".to_string())?;
-        ort::init_from(path)
-            .map_err(|e| format!("could not load {}: {e}", path.display()))?
-            .with_name("murmur")
-            .build()
-            .map_err(|e| format!("could not start ONNX Runtime: {e}"))
-    });
-    env.as_ref().map_err(|e| anyhow!("{e}"))
-}
 
 struct Loaded {
     preprocessor: Mutex<Session>,
@@ -72,16 +47,6 @@ impl ParakeetEngine {
     pub fn new() -> Self {
         Self::default()
     }
-}
-
-fn session(dir: &Path, file: &str, threads: usize) -> Result<Session> {
-    let env = environment()?;
-    let path = dir.join(file);
-    Session::builder(env)
-        .and_then(|b| Ok(b.with_optimization_level(GraphOptimizationLevel::Level3)?))
-        .and_then(|b| Ok(b.with_intra_threads(threads)?))
-        .and_then(|mut b| b.commit_from_file(&path))
-        .map_err(|e| anyhow!("could not load {}: {e}", path.display()))
 }
 
 /// vocab.txt has one "token id" pair per line; "<blk>" is the blank.
@@ -114,20 +79,6 @@ pub fn detokenize(vocab: &[String], tokens: &[usize]) -> String {
         .map(|t| t.replace('\u{2581}', " "))
         .collect();
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn argmax(values: &[f32]) -> usize {
-    values
-        .iter()
-        .enumerate()
-        .fold((0, f32::NEG_INFINITY), |best, (i, &v)| {
-            if v > best.1 {
-                (i, v)
-            } else {
-                best
-            }
-        })
-        .0
 }
 
 impl SpeechEngine for ParakeetEngine {
@@ -269,6 +220,7 @@ impl SpeechEngine for ParakeetEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::onnx;
 
     #[test]
     fn vocab_parsing_finds_the_blank() {
@@ -293,40 +245,14 @@ mod tests {
         assert_eq!(detokenize(&vocab, &[]), "");
     }
 
-    #[test]
-    fn argmax_picks_the_largest() {
-        assert_eq!(argmax(&[0.1, 3.0, -1.0, 2.9]), 1);
-        assert_eq!(argmax(&[5.0]), 0);
-    }
-
-    fn model_dir() -> PathBuf {
-        crate::paths::data_dir_named(&crate::paths::product_name())
-            .unwrap()
-            .join("models")
-            .join("parakeet-tdt-0.6b-v2")
-    }
-
-    fn use_vendored_runtime() {
-        set_runtime_path(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"),
-        );
-    }
-
     /// Prints every model's real input and output names and types.
     #[test]
     #[ignore = "needs the Parakeet v2 download and ONNX Runtime"]
     fn probe_model_io() {
-        use_vendored_runtime();
+        onnx::use_vendored_runtime();
+        let dir = onnx::installed_model_dir("parakeet-tdt-0.6b-v2");
         for file in [PREPROCESSOR, ENCODER, DECODER] {
-            let s = session(&model_dir(), file, 2).unwrap();
-            println!("== {file}");
-            for i in s.inputs() {
-                println!("  in  {} {:?}", i.name(), i.dtype());
-            }
-            for o in s.outputs() {
-                println!("  out {} {:?}", o.name(), o.dtype());
-            }
+            onnx::print_io(&dir, file);
         }
     }
 }

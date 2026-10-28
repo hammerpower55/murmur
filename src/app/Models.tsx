@@ -28,7 +28,6 @@ export function Models() {
   return (
     <section className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">Models</h1>
-      <p className="mt-1 text-sm text-zinc-500">Ratings compare models on this device class.</p>
 
       {romanUrduHint && (
         <p className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-sm text-amber-200">
@@ -59,7 +58,7 @@ export function Models() {
 
       <div className="mt-4 flex flex-col gap-3">
         {shown.length === 0 && (
-          <p className="py-10 text-center text-sm text-zinc-500">No models match. Clear the search to see all.</p>
+          <p className="py-10 text-center text-sm text-zinc-500">Clear the search to see every model.</p>
         )}
         {shown.map((m) => (
           <ModelCard

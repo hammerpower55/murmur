@@ -1,22 +1,25 @@
 import { useEffect, useState } from "react";
+import { Dictionary } from "./app/Dictionary";
 import { History } from "./app/History";
 import { Home } from "./app/Home";
 import { Insights } from "./app/Insights";
 import { Models } from "./app/Models";
 import { Onboarding } from "./app/Onboarding";
 import { Settings } from "./app/Settings";
+import { Snippets } from "./app/Snippets";
 import { api } from "./lib/api";
 import { APP_NAME } from "./lib/app";
 import { subscribeModels } from "./store/models";
 
-type Page = "home" | "insights" | "history" | "models" | "settings";
+type Page = "home" | "insights" | "history" | "dictionary" | "snippets" | "models" | "settings";
 type Screen = "loading" | "onboarding" | Page;
 
-/** Pages are added to this list as later phases build them. */
 const NAV: { id: Page; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "insights", label: "Insights" },
   { id: "history", label: "History" },
+  { id: "dictionary", label: "Dictionary" },
+  { id: "snippets", label: "Snippets" },
   { id: "models", label: "Models" },
   { id: "settings", label: "Settings" },
 ];
@@ -66,8 +69,10 @@ function App() {
         {screen === "home" && <Home onSeeHistory={() => setScreen("history")} />}
         {screen === "insights" && <Insights />}
         {screen === "history" && <History />}
+        {screen === "dictionary" && <Dictionary />}
+        {screen === "snippets" && <Snippets />}
         {screen === "models" && <Models />}
-        {screen === "settings" && <Settings />}
+        {screen === "settings" && <Settings onOpenModels={() => setScreen("models")} />}
       </main>
     </div>
   );

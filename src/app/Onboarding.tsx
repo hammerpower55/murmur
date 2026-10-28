@@ -3,6 +3,7 @@ import { ModelCard } from "../components/ModelCard";
 import { api, errorText } from "../lib/api";
 import { APP_NAME } from "../lib/app";
 import { useModels } from "../store/models";
+import { useHotkeyText } from "../store/settings";
 
 type Mic = { state: "checking" } | { state: "ok" } | { state: "blocked"; message: string };
 
@@ -14,6 +15,7 @@ interface Props {
 export function Onboarding({ onDone, onSeeAllModels }: Props) {
   const { view, errors, download, cancel, use } = useModels();
   const [mic, setMic] = useState<Mic>({ state: "checking" });
+  const hotkey = useHotkeyText();
 
   const checkMic = () => {
     setMic({ state: "checking" });
@@ -83,7 +85,7 @@ export function Onboarding({ onDone, onSeeAllModels }: Props) {
 
       {(ready || anyActive) && (
         <div className="flex flex-col items-start gap-3">
-          <p className="text-sm text-zinc-300">Hold Ctrl and Win, speak, then let go.</p>
+          <p className="text-sm text-zinc-300">Hold {hotkey}, speak, then let go.</p>
           <button
             className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
             onClick={onDone}

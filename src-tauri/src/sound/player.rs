@@ -3,7 +3,9 @@
 //! paying 100 ms or more to open a device on every key press.
 
 use std::io::Cursor;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 
 use rodio::{Decoder, DeviceSinkBuilder, Source};
 
@@ -28,51 +30,100 @@ impl Cue {
     }
 }
 
+enum Message {
+    /// A cue and its gain, 0 to 1.
+    Play(Cue, f32),
+    /// Open the output device now so the next cue starts at once.
+    Warm,
+}
+
+/// Cheap to clone; every clone drives the same output.
+#[derive(Clone)]
 pub struct SoundPlayer {
-    tx: Option<Sender<Cue>>,
+    tx: Option<Sender<Message>>,
+    /// Volume 0 to 100, 0 when sounds are off.
+    volume: Arc<AtomicU32>,
+}
+
+/// Effective volume: 0 when muted.
+fn level(volume: u32, enabled: bool) -> u32 {
+    if enabled {
+        volume.min(100)
+    } else {
+        0
+    }
 }
 
 impl SoundPlayer {
-    /// `volume` is 0 to 100. Muted players start no thread and play nothing.
-    pub fn spawn(volume: u8, muted: bool) -> Self {
-        if muted || volume == 0 {
-            return Self { tx: None };
-        }
-        let gain = volume.min(100) as f32 / 100.0;
+    /// `volume` is 0 to 100. The output device opens only once sounds are on.
+    pub fn spawn(volume: u32, enabled: bool) -> Self {
+        let volume = Arc::new(AtomicU32::new(level(volume, enabled)));
         let (tx, rx) = mpsc::channel();
         let spawned = std::thread::Builder::new()
             .name("murmur-sound".into())
-            .spawn(move || run(rx, gain));
+            .spawn(move || run(rx));
         if let Err(err) = spawned {
             log::warn!("sounds disabled: {err}");
-            return Self { tx: None };
+            return Self { tx: None, volume };
         }
-        Self { tx: Some(tx) }
+        let player = Self {
+            tx: Some(tx),
+            volume,
+        };
+        player.warm();
+        player
+    }
+
+    pub fn set(&self, volume: u32, enabled: bool) {
+        self.volume.store(level(volume, enabled), Ordering::SeqCst);
+        self.warm();
+    }
+
+    fn warm(&self) {
+        if self.volume.load(Ordering::SeqCst) > 0 {
+            if let Some(tx) = &self.tx {
+                let _ = tx.send(Message::Warm);
+            }
+        }
     }
 
     /// Queues a cue. Returns immediately; playback starts within a few ms.
     pub fn play(&self, cue: Cue) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(cue);
+        if self.volume.load(Ordering::SeqCst) == 0 {
+            return;
         }
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Message::Play(cue, self.gain()));
+        }
+    }
+
+    fn gain(&self) -> f32 {
+        self.volume.load(Ordering::SeqCst) as f32 / 100.0
     }
 }
 
-fn run(rx: Receiver<Cue>, gain: f32) {
-    let mut sink = match DeviceSinkBuilder::open_default_sink() {
-        Ok(sink) => sink,
-        Err(err) => {
-            log::warn!("no sound output: {err}");
-            // Keep draining so senders never block or error.
-            while rx.recv().is_ok() {}
-            return;
+fn run(rx: Receiver<Message>) {
+    let mut sink: Option<rodio::MixerDeviceSink> = None;
+    let mut failed = false;
+    while let Ok(message) = rx.recv() {
+        if sink.is_none() && !failed {
+            match DeviceSinkBuilder::open_default_sink() {
+                Ok(mut s) => {
+                    s.log_on_drop(false);
+                    sink = Some(s);
+                }
+                Err(err) => {
+                    // Keep draining so senders never block or error.
+                    log::warn!("no sound output: {err}");
+                    failed = true;
+                }
+            }
         }
-    };
-    sink.log_on_drop(false);
-
-    while let Ok(cue) = rx.recv() {
+        let (Message::Play(cue, gain), Some(s)) = (message, sink.as_ref()) else {
+            continue;
+        };
         match Decoder::new(Cursor::new(cue.bytes())) {
-            Ok(source) => sink.mixer().add(source.amplify(gain)),
+            Ok(source) => s.mixer().add(source.amplify(gain)),
             Err(err) => log::warn!("could not play {cue:?}: {err}"),
         }
     }
@@ -93,8 +144,14 @@ mod tests {
 
     #[test]
     fn muted_player_is_silent_and_never_fails() {
-        let p = SoundPlayer::spawn(60, true);
-        assert!(p.tx.is_none());
+        let p = SoundPlayer::spawn(60, false);
+        assert_eq!(p.gain(), 0.0);
         p.play(Cue::Start);
+        p.set(80, true);
+        assert!((p.gain() - 0.8).abs() < 1e-6);
+        p.set(150, true);
+        assert_eq!(p.gain(), 1.0);
+        p.set(80, false);
+        assert_eq!(p.gain(), 0.0);
     }
 }

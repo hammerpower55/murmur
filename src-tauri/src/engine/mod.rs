@@ -1,7 +1,11 @@
 //! Speech engines. Every engine takes 16 kHz mono f32 and returns text.
 
+mod fbank;
 pub mod host;
+pub mod moonshine;
+pub mod onnx;
 pub mod parakeet;
+pub mod sensevoice;
 pub mod whisper;
 
 #[cfg(test)]

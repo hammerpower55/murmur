@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type Family = "whisper" | "parakeet";
+export type Family = "whisper" | "parakeet" | "moonshine" | "sensevoice";
 
 export interface ModelInfo {
   id: string;
@@ -81,6 +81,56 @@ export interface Insights {
   dictationsByHour: number[];
 }
 
+export type OverlayPosition = "bottomCentre" | "topCentre" | "bottomRight";
+
+/** Mirrors settings.rs. Hotkeys are key names such as ["ctrl", "win"]. */
+export interface Settings {
+  launchAtLogin: boolean;
+  showInTray: boolean;
+  closeToTray: boolean;
+  mainHotkey: string[];
+  toggleHotkeyEnabled: boolean;
+  toggleHotkey: string[];
+  microphone: string | null;
+  inputGain: number;
+  unloadAfterMinutes: number;
+  language: string;
+  romanUrdu: boolean;
+  overlayEnabled: boolean;
+  overlayPosition: OverlayPosition;
+  overlayColour: string;
+  soundsEnabled: boolean;
+  soundVolume: number;
+  removeFillers: boolean;
+  addTrailingSpace: boolean;
+  voicePunctuation: boolean;
+  typingWpm: number;
+  keepAudioClips: boolean;
+}
+
+export interface DictEntry {
+  spoken: string;
+  written: string;
+}
+
+export interface Snippet {
+  trigger: string;
+  text: string;
+}
+
+export interface UrduRow {
+  canonical: string;
+  variants: string[];
+}
+
+export interface TextData {
+  dictionary: DictEntry[];
+  snippets: Snippet[];
+  romanUrdu: UrduRow[];
+}
+
+export type ListKind = "dictionary" | "snippets";
+
 export const api = {
   listModels: () => invoke<ModelsView>("list_models"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
@@ -98,10 +148,31 @@ export const api = {
   homeSummary: () => invoke<HomeSummary>("home_summary"),
   appIcon: (appName: string) => invoke<string | null>("app_icon", { appName }),
   insights: () => invoke<Insights>("insights"),
+  getSettings: () => invoke<{ settings: Settings; defaults: Settings }>("get_settings"),
+  setSettings: (next: Settings) => invoke<Settings>("set_settings", { next }),
+  listMicrophones: () => invoke<string[]>("list_microphones"),
+  testMicrophone: (on: boolean) => invoke<void>("test_microphone", { on }),
+  /** Resolves with the keys pressed, or null if cancelled. */
+  captureHotkey: () => invoke<string[] | null>("capture_hotkey"),
+  openDataFolder: () => invoke<void>("open_data_folder"),
+  openLicences: () => invoke<void>("open_licences"),
+  appInfo: () => invoke<{ name: string; version: string }>("app_info"),
+  textData: () => invoke<TextData>("text_data"),
+  setDictionary: (entries: DictEntry[]) => invoke<void>("set_dictionary", { entries }),
+  setSnippets: (snippets: Snippet[]) => invoke<void>("set_snippets", { snippets }),
+  setRomanUrdu: (rows: UrduRow[]) => invoke<void>("set_roman_urdu", { rows }),
+  resetRomanUrdu: () => invoke<UrduRow[]>("reset_roman_urdu"),
+  /** False if the user cancelled the save dialog. */
+  exportCsv: (kind: ListKind) => invoke<boolean>("export_csv", { kind }),
+  /** Rows read, or null if the user cancelled. */
+  importCsv: (kind: ListKind) => invoke<number | null>("import_csv", { kind }),
 };
 
 export const events = {
   transcriptAdded: (cb: () => void): Promise<UnlistenFn> => listen("transcript-added", () => cb()),
+  insightsChanged: (cb: () => void): Promise<UnlistenFn> => listen("insights-changed", () => cb()),
+  micLevel: (cb: (rms: number) => void): Promise<UnlistenFn> =>
+    listen<{ rms: number; peak: number }>("mic-level", (e) => cb(e.payload.rms)),
   modelsChanged: (cb: () => void): Promise<UnlistenFn> => listen("models-changed", () => cb()),
   modelDownload: (cb: (p: Progress & { id: string }) => void): Promise<UnlistenFn> =>
     listen<Progress & { id: string }>("model-download", (e) => cb(e.payload)),

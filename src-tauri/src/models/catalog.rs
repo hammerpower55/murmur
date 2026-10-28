@@ -10,6 +10,8 @@ const CATALOG: &str = include_str!("catalog.json");
 pub enum Family {
     Whisper,
     Parakeet,
+    Moonshine,
+    Sensevoice,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

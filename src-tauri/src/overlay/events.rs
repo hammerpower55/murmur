@@ -1,6 +1,7 @@
 //! What the overlay shows, driven from the dictation controller. The page
 //! listens for `overlay-phase` and `audio-level`; this side decides timing.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ use tauri::{AppHandle, Emitter};
 
 use super::window::{OverlayWindow, LABEL};
 use crate::audio::levels::Level;
+use crate::settings::OverlayPosition;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -39,27 +41,33 @@ struct Shown {
     phase: Phase,
 }
 
+/// How the pill looks; the page asks for it on load and gets
+/// `overlay-style` whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Style {
+    pub bar_colour: String,
+}
+
 #[derive(Clone)]
 pub struct Overlay {
     app: AppHandle,
     window: Option<Arc<OverlayWindow>>,
     shown: Arc<Mutex<Shown>>,
+    /// Setting "Show overlay"; when off nothing is shown.
+    enabled: Arc<AtomicBool>,
+    style: Arc<Mutex<Style>>,
 }
 
 impl Overlay {
-    /// `enabled` false gives an overlay that does nothing (setting "overlay
-    /// off"). Setup failures are logged and also leave it inert.
-    pub fn new(app: AppHandle, enabled: bool) -> Self {
-        let window = if enabled {
-            match OverlayWindow::setup(&app) {
-                Ok(w) => Some(Arc::new(w)),
-                Err(err) => {
-                    log::warn!("overlay disabled: {err:#}");
-                    None
-                }
+    /// Setup failures are logged and leave the overlay inert.
+    pub fn new(app: AppHandle, enabled: bool, position: OverlayPosition, style: Style) -> Self {
+        let window = match OverlayWindow::setup(&app, position) {
+            Ok(w) => Some(Arc::new(w)),
+            Err(err) => {
+                log::warn!("overlay disabled: {err:#}");
+                None
             }
-        } else {
-            None
         };
         Self {
             app,
@@ -68,7 +76,32 @@ impl Overlay {
                 generation: 0,
                 phase: Phase::Hidden,
             })),
+            enabled: Arc::new(AtomicBool::new(enabled)),
+            style: Arc::new(Mutex::new(style)),
         }
+    }
+
+    /// Applies the overlay settings. A pill on screen keeps going.
+    pub fn configure(&self, enabled: bool, position: OverlayPosition, style: Style) {
+        self.enabled.store(enabled, Ordering::SeqCst);
+        if let Some(window) = &self.window {
+            window.set_position(position);
+        }
+        if let Ok(mut s) = self.style.lock() {
+            if *s != style {
+                *s = style.clone();
+                let _ = self.app.emit_to(LABEL, "overlay-style", style);
+            }
+        }
+    }
+
+    pub fn style(&self) -> Style {
+        self.style
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| Style {
+                bar_colour: "#ffffff".into(),
+            })
     }
 
     /// A new recording: move to the monitor under the mouse and show.
@@ -76,6 +109,9 @@ impl Overlay {
         let Some(window) = &self.window else {
             return;
         };
+        if !self.enabled.load(Ordering::SeqCst) {
+            return;
+        }
         if let Err(err) = window.place_on_cursor_monitor() {
             log::warn!("could not place the overlay: {err:#}");
         }
@@ -91,8 +127,10 @@ impl Overlay {
         if self.window.is_none() {
             return;
         }
+        // Only a recording brings the pill up (and not while it is turned
+        // off), so later phases move it along but never show it.
         let generation = match self.shown.lock() {
-            Ok(mut shown) if shown.phase != phase => {
+            Ok(mut shown) if shown.phase != phase && shown.phase != Phase::Hidden => {
                 shown.phase = phase;
                 self.emit(phase);
                 shown.generation
@@ -114,7 +152,7 @@ impl Overlay {
     }
 
     pub fn level(&self, level: Level) {
-        if self.window.is_some() {
+        if self.window.is_some() && self.enabled.load(Ordering::SeqCst) {
             let _ = self.app.emit_to(LABEL, "audio-level", level);
         }
     }

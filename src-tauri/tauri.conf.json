@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "visible": false,
         "width": 960,
         "height": 680,
         "minWidth": 720,
@@ -49,7 +50,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll": "onnxruntime.dll"
+      "vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll": "onnxruntime.dll",
+      "../NOTICE": "NOTICE",
+      "../LICENSE": "LICENSE"
     }
   }
 }

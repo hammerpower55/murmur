@@ -62,9 +62,9 @@ pub struct ModelManager {
 }
 
 /// Only Whisper takes a prompt; it keeps Roman Urdu in Latin script.
-pub fn options_for(family: Family) -> EngineOptions {
+pub fn options_for(family: Family, roman_urdu: bool) -> EngineOptions {
     EngineOptions {
-        initial_prompt: (family == Family::Whisper && settings::ROMAN_URDU_MIXING)
+        initial_prompt: (family == Family::Whisper && roman_urdu)
             .then(|| ROMAN_URDU_PROMPT.to_string()),
         ..EngineOptions::default()
     }
@@ -91,7 +91,7 @@ impl ModelManager {
             active: self.host.active(),
             loading: self.host.loading(),
             downloads,
-            roman_urdu: settings::ROMAN_URDU_MIXING,
+            roman_urdu: settings::current(&self.app).roman_urdu,
         }
     }
 
@@ -135,8 +135,9 @@ impl ModelManager {
         settings::set_active_model(&self.app, Some(id))?;
         let me = Arc::clone(self);
         let model_id = id.to_string();
+        let opts = options_for(spec.family, settings::current(&self.app).roman_urdu);
         self.host
-            .switch(spec.clone(), options_for(spec.family), move |result| {
+            .switch(spec.clone(), opts, move |result| {
                 if result.is_err() {
                     me.error(
                         &model_id,
@@ -147,6 +148,29 @@ impl ModelManager {
             });
         self.changed();
         Ok(())
+    }
+
+    /// Reloads the active model so a changed Roman Urdu setting takes effect.
+    /// Only Whisper uses it.
+    pub fn reload_active(&self) {
+        if self.host.active_family() == Some(Family::Whisper) {
+            let opts = options_for(Family::Whisper, settings::current(&self.app).roman_urdu);
+            self.host.reload(opts);
+            self.changed();
+        }
+    }
+
+    /// Installed models for the tray menu: (id, name).
+    pub fn installed(&self) -> Vec<(String, String)> {
+        self.registry
+            .installed()
+            .into_iter()
+            .map(|m| (m.id, m.name))
+            .collect()
+    }
+
+    pub fn active(&self) -> Option<String> {
+        self.host.active()
     }
 
     pub fn start_download(self: &Arc<Self>, id: &str) -> Result<()> {

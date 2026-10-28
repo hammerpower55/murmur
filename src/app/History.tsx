@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TranscriptItem } from "../components/TranscriptItem";
 import { api, events, type TranscriptRow } from "../lib/api";
+import { useHotkeyText } from "../store/settings";
 
 const PAGE = 50;
 
@@ -9,6 +10,7 @@ export function History() {
   const [rows, setRows] = useState<TranscriptRow[] | null>(null);
   const [more, setMore] = useState(false);
   const latest = useRef(0);
+  const hotkey = useHotkeyText();
 
   /** Reloads from the top, keeping as many rows as are already shown. */
   const load = useCallback(async (q: string, count: number) => {
@@ -49,8 +51,8 @@ export function History() {
         {rows !== null && rows.length === 0 && (
           <p className="py-10 text-center text-sm text-zinc-500">
             {query.trim() === ""
-              ? "Hold Ctrl and Win to dictate your first transcript."
-              : "No transcripts match. Clear the search to see all."}
+              ? `Hold ${hotkey} to dictate your first transcript.`
+              : "Clear the search to see every transcript."}
           </p>
         )}
         {rows?.map((r) => (

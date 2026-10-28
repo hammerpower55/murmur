@@ -151,7 +151,8 @@ impl Registry {
         let dir = self.model_dir(id);
         let path = match model.family {
             Family::Whisper => dir.join(&model.files[0].name),
-            Family::Parakeet => dir,
+            // ONNX engines take the folder and find their files in it.
+            Family::Parakeet | Family::Moonshine | Family::Sensevoice => dir,
         };
         Ok(LoadSpec {
             id: id.into(),

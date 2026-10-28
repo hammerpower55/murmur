@@ -1,5 +1,5 @@
 {
-  "_comment": "Static model catalogue (spec 6.2). URLs are pinned to a repository commit so the hashes stay valid. Ratings are relative to each other on a Snapdragon X class CPU. Moonshine and SenseVoice join when their engines land (Phase 8). The default is Whisper turbo Q8_0, not the spec's Q5_0: ggml repacks Q8_0 weights at load for the Snapdragon's int8 matrix instructions (i8mm) while Q5_0 has no repacked kernel, so on the X Plus a 5 s clip takes about 4.5 s instead of 10 to 14 s with the same accuracy.",
+  "_comment": "Static model catalogue (spec 6.2). URLs are pinned to a repository commit so the hashes stay valid. Ratings are relative to each other on a Snapdragon X class CPU. Moonshine Base uses the int8 ONNX build (63 MB of weights, the float build is 247 MB). The default is Whisper turbo Q8_0, not the spec's Q5_0: ggml repacks Q8_0 weights at load for the Snapdragon's int8 matrix instructions (i8mm) while Q5_0 has no repacked kernel, so on the X Plus a 5 s clip takes about 4.5 s instead of 10 to 14 s with the same accuracy.",
   "models": [
     {
       "id": "whisper-large-v3-turbo-q8",
@@ -89,6 +89,60 @@
           "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/vocab.txt",
           "size": 93939,
           "git_sha1": "fc43e1c723e262df60b70e1919614417162d1fe2"
+        }
+      ]
+    },
+    {
+      "id": "moonshine-base",
+      "name": "Moonshine Base",
+      "family": "moonshine",
+      "accuracy": 3,
+      "speed": 5,
+      "languages": ["en"],
+      "languages_label": "English only",
+      "ram_mb": 400,
+      "files": [
+        {
+          "name": "encoder_model.onnx",
+          "url": "https://huggingface.co/UsefulSensors/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/quantized/encoder_model.onnx",
+          "size": 20513063,
+          "sha256": "1dd9ab0a7f987113d30affcba5a068d11c8f90fa0223caa3e491ade431ad9751"
+        },
+        {
+          "name": "decoder_model_merged.onnx",
+          "url": "https://huggingface.co/UsefulSensors/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/quantized/decoder_model_merged.onnx",
+          "size": 42498870,
+          "sha256": "cc9f3cd6698a369c6008b41aa60aa3fb3322e7f03c9bdf19d8e6b7200afca4f3"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/UsefulSensors/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
+          "size": 3761751,
+          "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "sensevoice-small",
+      "name": "SenseVoice Small",
+      "family": "sensevoice",
+      "accuracy": 4,
+      "speed": 5,
+      "languages": ["zh", "en", "ja", "ko", "yue"],
+      "languages_label": "Chinese, English, Japanese, Korean, Cantonese",
+      "ram_mb": 600,
+      "files": [
+        {
+          "name": "model.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx",
+          "size": 239233841,
+          "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+        },
+        {
+          "name": "tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt",
+          "size": 315894,
+          "git_sha1": "2cfc92fc2ff26aaa690b7c01fd96b41109413881"
         }
       ]
     },

@@ -41,7 +41,14 @@ Build phases run in order. Each phase ends with its acceptance checks, one commi
 - Fixture clips: debug builds with `MURMUR_FIXTURE_DIR` set save each dictation as the next free `clip_NN.wav` and skip transcription. Release builds never write audio.
 - The overlay window is never hidden. It stays shown, transparent, click through and non focusable (`focusable: false` gives WS_EX_NOACTIVATE; click through gives WS_EX_TRANSPARENT | WS_EX_LAYERED), and the page draws nothing when idle. Hiding it breaks things: WebView2 stops rendering hidden windows, and showing a window through Tauri activates it and steals focus. Placement uses Win32 `SetWindowPos` with SWP_NOACTIVATE. Idle CPU with overlay and sound output open: about 0.25%.
 - Testing with injected keys: keep Notepad (never this chat app, never Murmur) in front. Injected keys do not reach the hook while Murmur's own window has focus, and anything the mic hears gets pasted into the focused app.
-- Moonshine and SenseVoice are left out of catalog.json until their engines exist (Phase 8); Moonshine Base has no 120 MB build, so pick its files then.
+- Moonshine Base uses the int8 "merged" ONNX build from UsefulSensors/moonshine (63 MB of weights plus tokenizer.json from the float folder; the float build is 247 MB). Its decoder's cache inputs (8 layers, 8 heads of 52) are read from the model, the first step runs the no cache branch with placeholder past tensors, and the cross attention cache from that step is reused. SenseVoice Small is sherpa-onnx's model.int8.onnx: Kaldi fbank (`engine/fbank.rs`, Hamming window, 16 bit scale input), low frame rate stacking 7/6, CMVN and language ids from the model metadata, CTC greedy after the 4 tag frames, text normalisation on (so "three" can come back as "3").
+- Measured on the fixture clips (X Plus, AC, English): Moonshine Base 10.6% WER at about 0.2 s per clip; SenseVoice Small 6.1% at about 0.13 s. Neither handles Roman Urdu.
+- Settings (`settings.rs`) are one record stored as one key per field in settings.json; each key is validated alone so a bad value only resets itself. The live copy is `settings::Shared` (Arc<RwLock>), read by the dictation thread on every dictation; `set_settings` saves, swaps it and pushes changes to the hook, recorder, overlay, sounds, tray, autostart and (Roman Urdu only) a Whisper reload for the prompt.
+- Hotkeys are stored as key names (`hotkey/keys.rs`): ctrl, alt, shift, win match either side; a hotkey needs a modifier plus another key, or only function keys. Settings records a hotkey through the hook itself (`HotkeyControl::capture`), because the webview never sees Win and must not receive the keys. The hook proc only ever try_locks the control.
+- Dictionary, snippets and the Roman Urdu table live in `dictionary.json`, `snippets.json` and `roman_urdu.json` in %APPDATA%\Murmur (`text/store.rs`). The Roman Urdu file exists only once edited; "Restore defaults" deletes it.
+- "Unload model when idle" parks the model in `EngineHost` (unloaded but still active); the next hotkey press starts loading it while the user speaks.
+- "Keep audio clips" writes `%APPDATA%\Murmur\clips\<transcript id>.wav`; deleting a transcript or clearing history deletes the clips.
+- Tray via Tauri's tray-icon feature (`tray.rs`); the recording icon is the app icon with a red dot drawn at startup. Launch at login uses tauri-plugin-autostart (HKCU Run key) with `--hidden`, which starts in the tray. The main window starts hidden and is shown in setup unless started hidden with the tray on. Closing it hides to the tray when "Close to tray" is on, otherwise quits.
 - Measured on the fixture clips (X Plus, AC): Parakeet v2 transcribes a 5 s clip in about 0.1 to 0.16 s with 1.5% English WER, but cannot do Roman Urdu; Whisper turbo Q8_0 takes about 4.5 s with 6.1% English WER and is the only usable Roman Urdu option.
 - Insights (`db/insights.rs`) are computed in SQL on each request and cached in the `useInsights` store, refreshed on `transcript-added` and after Clear history. Weeks start Monday; last week is compared over the same number of days. Average speed is words over audio minutes for the last 30 days. Time saved is total words at the `typingWpm` setting (default 40) minus total audio time, never below zero. Streak counts consecutive days back from today (`db/stats.rs`), so it is 0 until the first dictation of the day.
 - Insights fixture: `py tests/seed_insights.py` writes 200 transcripts anchored to today to `%TEMP%\murmur-insights-fixture.db` and prints the expected numbers; run a debug build with `MURMUR_HISTORY_DB` set to that path to check the page. The same fixture is the `two_hundred_transcript_fixture` unit test.
@@ -56,15 +63,18 @@ src/            React frontend
   components/  store/ (zustand)  lib/ (invoke wrappers, formatting)
 src-tauri/src/
   audio/        capture, resample, vad, levels
-  engine/       mod.rs (SpeechEngine trait), whisper, parakeet, moonshine, sensevoice
+  engine/       mod.rs (SpeechEngine trait), host, onnx (shared runtime), fbank,
+                whisper, parakeet, moonshine, sensevoice
   models/       catalog.rs + catalog.json, download, registry
-  hotkey/       listener (WH_KEYBOARD_LL hook), state (push to talk + toggle)
+  hotkey/       listener (WH_KEYBOARD_LL hook), state (push to talk + toggle), keys
   inject/       paste, focus
-  text/         fillers, dictionary, snippets, format
-  db/           schema, transcripts, stats
+  text/         fillers, dictionary, snippets, format, store (user lists)
+  db/           schema, transcripts, stats, insights
   overlay/      window, events
   sound/        player
   commands.rs   all #[tauri::command] fns
+  dictation.rs  the controller thread
+  tray.rs
   settings.rs
 src-tauri/sounds/   start.wav, stop.wav, cancel.wav
 scripts/gen_sounds.py

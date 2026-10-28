@@ -2,6 +2,7 @@ import { useState } from "react";
 import { type TranscriptRow } from "../lib/api";
 import { useAppIcon } from "../lib/icons";
 import { appLabel, formatDuration, formatWhen, plural } from "../lib/format";
+import { languageName } from "../lib/languages";
 
 function AppIcon({ app }: { app: string | null }) {
   const src = useAppIcon(app);
@@ -39,6 +40,12 @@ export function TranscriptItem({ row, onDelete }: Props) {
         <span>{plural(row.wordCount, "word", "words")}</span>
         <span>·</span>
         <span>{formatDuration(row.audioMs)}</span>
+        {row.language && (
+          <>
+            <span>·</span>
+            <span>{languageName(row.language)}</span>
+          </>
+        )}
         <span className="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <button
             onClick={() => void copy()}

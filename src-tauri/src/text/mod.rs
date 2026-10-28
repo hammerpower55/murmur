@@ -17,6 +17,7 @@ pub mod punctuation;
 pub mod roman_urdu;
 pub mod snippets;
 pub mod stopwords;
+pub mod store;
 
 use std::collections::HashMap;
 

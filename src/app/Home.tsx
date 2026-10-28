@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { TranscriptItem } from "../components/TranscriptItem";
 import { api, events, type HomeSummary } from "../lib/api";
 import { plural } from "../lib/format";
+import { useHotkeyText } from "../store/settings";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -14,6 +15,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export function Home({ onSeeHistory }: { onSeeHistory: () => void }) {
   const [summary, setSummary] = useState<HomeSummary | null>(null);
+  const hotkey = useHotkeyText();
 
   useEffect(() => {
     const load = () => void api.homeSummary().then(setSummary);
@@ -43,7 +45,7 @@ export function Home({ onSeeHistory }: { onSeeHistory: () => void }) {
       </div>
       <div className="mt-3 flex flex-col gap-3">
         {summary.recent.length === 0 ? (
-          <p className="py-10 text-center text-sm text-zinc-500">Hold Ctrl and Win, speak, then let go.</p>
+          <p className="py-10 text-center text-sm text-zinc-500">Hold {hotkey}, speak, then let go.</p>
         ) : (
           summary.recent.map((r) => <TranscriptItem key={r.id} row={r} />)
         )}

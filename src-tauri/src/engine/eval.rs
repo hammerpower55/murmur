@@ -9,7 +9,10 @@
 
 use std::path::{Path, PathBuf};
 
-use super::parakeet::{self, ParakeetEngine};
+use super::moonshine::MoonshineEngine;
+use super::onnx;
+use super::parakeet::ParakeetEngine;
+use super::sensevoice::SenseVoiceEngine;
 use super::whisper::WhisperEngine;
 use super::{has_arabic_script, SpeechEngine};
 use crate::audio::resample;
@@ -110,16 +113,13 @@ fn fixture_wer() {
         .unwrap()
         .join("models");
     let spec = Registry::new(models_dir).resolve(&id).unwrap();
-    let opts = options_for(spec.family);
+    let opts = options_for(spec.family, true);
+    onnx::use_vendored_runtime();
     let mut engine: Box<dyn SpeechEngine> = match spec.family {
         Family::Whisper => Box::new(WhisperEngine::new()),
-        Family::Parakeet => {
-            parakeet::set_runtime_path(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"),
-            );
-            Box::new(ParakeetEngine::new())
-        }
+        Family::Parakeet => Box::new(ParakeetEngine::new()),
+        Family::Moonshine => Box::new(MoonshineEngine::new()),
+        Family::Sensevoice => Box::new(SenseVoiceEngine::new()),
     };
     let loading = std::time::Instant::now();
     engine.load(&spec.path, &opts).unwrap();

@@ -1,5 +1,6 @@
-//! Minimal 16 kHz mono 16 bit WAV writer. Only used to record test fixtures
-//! in debug builds; release builds never write audio to disk.
+//! Minimal 16 kHz mono 16 bit WAV writer. Microphone audio reaches disk only
+//! through here: when the user turns on "Keep audio clips", or as test
+//! fixtures in debug builds.
 
 use std::io::Write;
 use std::path::Path;

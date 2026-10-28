@@ -1,59 +1,151 @@
 //! Drives one dictation from hotkey to result: owns the state machine, the
 //! recorder, the speech engine and the hotkey listener, and runs on its own
-//! thread.
+//! thread. Settings are read live, so changes apply to the next dictation.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tauri::{AppHandle, Emitter};
 
-use crate::audio::capture::{Recorder, Recording};
+use crate::audio::capture::{InputConfig, Recorder, Recording, Tap};
 use crate::db::transcripts::NewTranscript;
 use crate::db::Db;
 use crate::engine::host::EngineHost;
 use crate::engine::{has_arabic_script, Transcript};
-use crate::hotkey::listener::{self, Combo, HotkeyEvent};
+use crate::hotkey::keys;
+use crate::hotkey::listener::{self, Combo, HotkeyControl, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
 use crate::inject::{focus, icons, paste};
-use crate::overlay::events::{Overlay, Phase};
-use crate::settings::{LANGUAGE, ROMAN_URDU_MIXING};
+use crate::models::catalog::Family;
+use crate::overlay::events::{Overlay, Phase, Style};
+use crate::settings::{self, Settings};
 use crate::sound::player::{Cue, SoundPlayer};
+use crate::text::store::TextStore;
 use crate::text::{self, snippets::SnippetContext, TextSettings};
 
 /// Recordings shorter than this are discarded.
 const MIN_AUDIO_MS: u64 = 300;
-/// The toggle only hotkey is off by default. Becomes a setting in Phase 8.
-const TOGGLE_HOTKEY_ENABLED: bool = false;
-/// Overlay and sound settings, fixed until Phase 8.
-const OVERLAY_ENABLED: bool = true;
-const SOUND_VOLUME: u8 = 60;
-const SOUNDS_MUTED: bool = false;
 /// Capture starts this long after the start cue begins playing (spec 6.5).
 const START_CUE_LEAD: Duration = Duration::from_millis(60);
+
+/// Where things live on disk.
+pub struct Dirs {
+    pub icons: PathBuf,
+    /// Audio clips, written only while "Keep audio clips" is on.
+    pub clips: PathBuf,
+}
+
+/// The running dictation pipeline, for the tray and the settings commands.
+#[derive(Clone)]
+pub struct Dictation {
+    tx: Sender<(HotkeyEvent, Instant)>,
+    hotkeys: Arc<HotkeyControl>,
+    recorder: Recorder,
+    overlay: Overlay,
+    sound: SoundPlayer,
+    recording: Arc<AtomicBool>,
+}
+
+fn combos(s: &Settings) -> (Combo, Option<Combo>) {
+    let main = keys::combo(&s.main_hotkey).unwrap_or_else(|_| Combo::ctrl_win());
+    let toggle = s
+        .toggle_hotkey_enabled
+        .then(|| keys::combo(&s.toggle_hotkey).unwrap_or_else(|_| Combo::ctrl_shift_space()));
+    (main, toggle)
+}
+
+fn input_config(s: &Settings) -> InputConfig {
+    InputConfig {
+        device: s.microphone.clone(),
+        gain: s.input_gain as f32 / 100.0,
+    }
+}
+
+fn style(s: &Settings) -> Style {
+    Style {
+        bar_colour: s.overlay_colour.clone(),
+    }
+}
+
+impl Dictation {
+    /// Pushes changed settings to the hook, microphone, overlay and sounds.
+    pub fn apply(&self, s: &Settings) {
+        let (main, toggle) = combos(s);
+        self.hotkeys.set_combos(main, toggle);
+        self.recorder.configure(input_config(s));
+        self.overlay
+            .configure(s.overlay_enabled, s.overlay_position, style(s));
+        self.sound.set(s.sound_volume, s.sounds_enabled);
+    }
+
+    /// Starts or stops a hands free dictation, as the toggle hotkey does.
+    pub fn toggle(&self) {
+        let _ = self.tx.send((HotkeyEvent::ToggleDown, Instant::now()));
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.recording.load(Ordering::SeqCst)
+    }
+
+    pub fn hotkeys(&self) -> &Arc<HotkeyControl> {
+        &self.hotkeys
+    }
+
+    pub fn test_microphone(&self, on: bool) {
+        self.recorder.monitor(on);
+    }
+
+    pub fn overlay_style(&self) -> Style {
+        self.overlay.style()
+    }
+}
 
 pub fn spawn(
     app: AppHandle,
     engine: Arc<EngineHost>,
     db: Arc<Db>,
-    icons_dir: PathBuf,
-) -> Result<()> {
+    dirs: Dirs,
+    shared: settings::Shared,
+    text: Arc<TextStore>,
+) -> Result<Dictation> {
+    let initial = shared.read().map(|s| s.clone()).unwrap_or_default();
     let (tx, rx) = mpsc::channel();
     let recording = Arc::new(AtomicBool::new(false));
-    listener::spawn(
-        Combo::ctrl_win(),
-        TOGGLE_HOTKEY_ENABLED.then(Combo::ctrl_shift_space),
-        recording.clone(),
-        tx,
-    );
+    let hotkeys = HotkeyControl::new();
+    let (main, toggle) = combos(&initial);
+    listener::spawn(main, toggle, recording.clone(), tx.clone(), hotkeys.clone());
 
-    let overlay = Overlay::new(app.clone(), OVERLAY_ENABLED);
+    let overlay = Overlay::new(
+        app.clone(),
+        initial.overlay_enabled,
+        initial.overlay_position,
+        style(&initial),
+    );
     let meter = overlay.clone();
-    let recorder = Recorder::spawn(Box::new(move |level| meter.level(level)))?;
-    let sound = SoundPlayer::spawn(SOUND_VOLUME, SOUNDS_MUTED);
+    let main_window = app.clone();
+    let recorder = Recorder::spawn(
+        input_config(&initial),
+        Box::new(move |level, tap| match tap {
+            Tap::Recording => meter.level(level),
+            Tap::Test => {
+                let _ = main_window.emit_to("main", "mic-level", level);
+            }
+        }),
+    )?;
+    let sound = SoundPlayer::spawn(initial.sound_volume, initial.sounds_enabled);
+    let handle = Dictation {
+        tx,
+        hotkeys,
+        recorder: recorder.clone(),
+        overlay: overlay.clone(),
+        sound: sound.clone(),
+        recording: recording.clone(),
+    };
+
     std::thread::Builder::new()
         .name("murmur-dictation".into())
         .spawn(move || {
@@ -69,24 +161,22 @@ pub fn spawn(
                 capture_started: None,
                 engine,
                 db,
-                icons_dir,
+                dirs,
                 ignore_before: None,
-                // Dictionary, snippets and toggles load from settings in Phase 8.
-                text: TextSettings {
-                    roman_urdu: ROMAN_URDU_MIXING,
-                    ..TextSettings::default()
-                },
+                settings: shared,
+                text,
+                last_used: Instant::now(),
             }
             .run(rx)
         })
         .context("could not start dictation thread")?;
-    Ok(())
+    Ok(handle)
 }
 
 /// Debug builds only, and only with MURMUR_FIXTURE_DIR set: saves each
 /// dictation as the next free clip_NN.wav so test fixtures can be recorded by
-/// simply dictating. Release builds never write audio to disk. Returns true
-/// in fixture mode.
+/// simply dictating. Release builds never write audio to disk here. Returns
+/// true in fixture mode.
 #[cfg(debug_assertions)]
 fn save_fixture(rec: &Recording) -> bool {
     let Some(dir) = std::env::var_os("MURMUR_FIXTURE_DIR") else {
@@ -106,6 +196,11 @@ fn save_fixture(rec: &Recording) -> bool {
     true
 }
 
+/// The clip file for a transcript, kept while "Keep audio clips" is on.
+pub fn clip_path(clips: &std::path::Path, id: i64) -> PathBuf {
+    clips.join(format!("{id}.wav"))
+}
+
 struct Controller {
     app: AppHandle,
     machine: Machine,
@@ -122,18 +217,38 @@ struct Controller {
     /// The active model; swapped from the Models page without a restart.
     engine: Arc<EngineHost>,
     db: Arc<Db>,
-    icons_dir: PathBuf,
+    dirs: Dirs,
     /// Key events from before this instant happened while transcribing and
     /// are dropped, so a press during Processing does not start a recording
     /// late.
     ignore_before: Option<Instant>,
-    text: TextSettings,
+    settings: settings::Shared,
+    text: Arc<TextStore>,
+    /// Last dictation, for unloading the model after a quiet spell.
+    last_used: Instant,
 }
 
 impl Controller {
+    fn settings(&self) -> Settings {
+        self.settings.read().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// When to unload the model, if it is loaded and the setting is on.
+    fn idle_deadline(&self) -> Option<Instant> {
+        let minutes = self.settings().unload_after_minutes;
+        (minutes > 0 && self.machine.state() == State::Idle && self.engine.is_loaded())
+            .then(|| self.last_used + Duration::from_secs(minutes as u64 * 60))
+    }
+
     fn run(mut self, rx: Receiver<(HotkeyEvent, Instant)>) {
         loop {
-            let event = match self.machine.deadline() {
+            let machine = self.machine.deadline();
+            let idle = self.idle_deadline();
+            let deadline = match (machine, idle) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            let event = match deadline {
                 Some(deadline) => {
                     match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                         Ok(event) => Some(event),
@@ -167,6 +282,9 @@ impl Controller {
                     self.event_at = Instant::now();
                     let effect = self.machine.tick(self.event_at);
                     self.drive(effect);
+                    if idle.is_some_and(|t| t <= Instant::now()) && self.engine.park() {
+                        let _ = self.app.emit("models-changed", ());
+                    }
                 }
             }
         }
@@ -188,6 +306,9 @@ impl Controller {
         match effect {
             Effect::None => None,
             Effect::StartCapture => {
+                // An unloaded model starts loading while the user speaks.
+                self.engine.wake();
+                self.last_used = Instant::now();
                 // Pill first so it shows well inside 100 ms, then the cue,
                 // then the microphone once the cue is under way.
                 self.overlay.recording();
@@ -229,6 +350,7 @@ impl Controller {
                         }
                         let result = self.dictate(&rec);
                         self.ignore_before = Some(Instant::now());
+                        self.last_used = Instant::now();
                         match result {
                             Ok(true) => Some(Input::Finished),
                             Ok(false) => Some(Input::Discarded),
@@ -270,14 +392,26 @@ impl Controller {
     /// focus when the hotkey was released. Returns false if nothing was said.
     fn dictate(&mut self, rec: &Recording) -> Result<bool> {
         let target = focus::foreground();
-        let (model, transcript) = self.transcribe(rec)?;
+        let prefs = self.settings();
+        let whisper = self.engine.active_family() == Some(Family::Whisper);
+        let language = prefs.engine_language(whisper);
+        let (model, transcript) = self.transcribe(rec, language.as_deref())?;
         let raw = transcript.text.clone();
         if raw.trim().is_empty() {
             return Ok(false);
         }
 
-        let clipboard = if self
-            .text
+        let user = self.text.get();
+        let text_settings = TextSettings {
+            remove_fillers: prefs.remove_fillers,
+            voice_punctuation: prefs.voice_punctuation,
+            add_trailing_space: prefs.add_trailing_space,
+            roman_urdu: prefs.roman_urdu,
+            dictionary: user.dictionary,
+            snippets: user.snippets,
+            roman_urdu_map: user.roman_urdu_map,
+        };
+        let clipboard = if text_settings
             .snippets
             .iter()
             .any(|s| s.text.contains("{clipboard}"))
@@ -289,7 +423,7 @@ impl Controller {
             String::new()
         };
         let ctx = SnippetContext::now(clipboard);
-        let text = text::process(&raw, &self.text, &ctx);
+        let text = text::process(&raw, &text_settings, &ctx);
         if text.trim().is_empty() {
             log::info!("nothing left after clean up");
             return Ok(false);
@@ -298,7 +432,17 @@ impl Controller {
         let started = Instant::now();
         let pasted = paste::paste(&text, &target);
         // Saved even if pasting failed, so the text can be copied from History.
-        self.record(rec, &model, &transcript, &raw, text.trim(), &target);
+        let language = transcript.language.clone().or(language);
+        self.record(
+            rec,
+            &model,
+            &transcript,
+            &raw,
+            text.trim(),
+            &target,
+            language,
+            prefs.keep_audio_clips,
+        );
         pasted?;
         log::info!(
             "pasted {} chars into {} in {} ms{}",
@@ -321,6 +465,7 @@ impl Controller {
     /// Writes the transcript row (spec 5.2 step 8), tells the UI, and saves
     /// the app's icon the first time Murmur sees that app. Failures are
     /// logged: history must never break dictation.
+    #[allow(clippy::too_many_arguments)]
     fn record(
         &self,
         rec: &Recording,
@@ -329,6 +474,8 @@ impl Controller {
         raw: &str,
         final_text: &str,
         target: &focus::FocusedApp,
+        language: Option<String>,
+        keep_audio: bool,
     ) {
         let row = NewTranscript {
             created_at: chrono::Local::now().naive_local(),
@@ -337,22 +484,28 @@ impl Controller {
             audio_ms: rec.duration_ms(),
             inference_ms: transcript.inference_ms,
             model_id: model.to_string(),
-            language: transcript
-                .language
-                .clone()
-                .or_else(|| Some(LANGUAGE.to_string())),
+            language,
             app_name: (!target.exe.is_empty()).then(|| target.exe.clone()),
             app_title: (!target.title.is_empty()).then(|| target.title.clone()),
         };
         match self.db.insert_transcript(&row) {
             Ok(id) => {
+                if keep_audio {
+                    let path = clip_path(&self.dirs.clips, id);
+                    let saved = std::fs::create_dir_all(&self.dirs.clips)
+                        .map_err(anyhow::Error::from)
+                        .and_then(|_| crate::audio::wav::write_16k_mono(&path, &rec.samples));
+                    if let Err(err) = saved {
+                        log::warn!("could not keep the audio clip: {err:#}");
+                    }
+                }
                 let _ = self.app.emit("transcript-added", id);
             }
             Err(err) => log::error!("could not save the transcript: {err:#}"),
         }
         if !target.exe.is_empty() {
             let (dir, exe, path) = (
-                self.icons_dir.clone(),
+                self.dirs.icons.clone(),
                 target.exe.clone(),
                 target.exe_path.clone(),
             );
@@ -365,8 +518,8 @@ impl Controller {
     }
 
     /// Runs the active engine. Returns the model id and its transcript.
-    fn transcribe(&mut self, rec: &Recording) -> Result<(String, Transcript)> {
-        let (model, transcript) = self.engine.transcribe(&rec.samples, Some(LANGUAGE))?;
+    fn transcribe(&mut self, rec: &Recording, language: Option<&str>) -> Result<(String, Transcript)> {
+        let (model, transcript) = self.engine.transcribe(&rec.samples, language)?;
         let audio_ms = rec.duration_ms();
         log::info!(
             "{} transcribed {:.2} s of audio in {} ms ({:.2}x real time), language {}",
@@ -374,7 +527,11 @@ impl Controller {
             audio_ms as f64 / 1000.0,
             transcript.inference_ms,
             transcript.inference_ms as f64 / audio_ms.max(1) as f64,
-            transcript.language.as_deref().unwrap_or("unknown")
+            transcript
+                .language
+                .as_deref()
+                .or(language)
+                .unwrap_or("auto")
         );
         if has_arabic_script(&transcript.text) {
             log::warn!("transcript contains Arabic script");

@@ -23,6 +23,11 @@ pub fn icons_dir(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("icons"))
 }
 
+/// Dictation audio, written only while "Keep audio clips" is on.
+pub fn clips_dir(app: &AppHandle) -> Result<PathBuf> {
+    Ok(data_dir(app)?.join("clips"))
+}
+
 /// productName from tauri.conf.json, for tests that have no AppHandle.
 #[cfg(test)]
 pub fn product_name() -> String {

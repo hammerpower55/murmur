@@ -3,45 +3,81 @@
 //! Switching unloads the old model before loading the new one, so two large
 //! models never sit in memory together (spec: never above 3 GB). A dictation
 //! that arrives mid switch waits for the new model instead of failing.
+//!
+//! After a quiet spell the model can be parked: unloaded but still the
+//! active choice. The next hotkey press wakes it, so loading overlaps with
+//! the user speaking.
 
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Result};
 
+use super::moonshine::MoonshineEngine;
 use super::parakeet::ParakeetEngine;
+use super::sensevoice::SenseVoiceEngine;
 use super::whisper::WhisperEngine;
 use super::{EngineOptions, SpeechEngine, Transcript};
 use crate::models::catalog::Family;
 use crate::models::registry::LoadSpec;
+
+type Loader = fn(&LoadSpec, &EngineOptions) -> Result<Arc<dyn SpeechEngine>>;
 
 #[derive(Default)]
 struct Inner {
     engine: Option<Arc<dyn SpeechEngine>>,
     active: Option<String>,
     loading: Option<String>,
+    /// What the active model was loaded with, for waking and reloading.
+    current: Option<(LoadSpec, EngineOptions)>,
+    /// Unloaded after being idle; `current` says what to bring back.
+    parked: bool,
     /// Bumped on every switch so a slow, superseded load is thrown away.
     generation: u64,
 }
 
-#[derive(Default)]
 pub struct EngineHost {
     inner: Mutex<Inner>,
     changed: Condvar,
+    loader: Loader,
 }
 
 impl EngineHost {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+        Self::with_loader(load)
     }
 
-    /// Model id in use, if one is loaded.
+    fn with_loader(loader: Loader) -> Arc<Self> {
+        Arc::new(Self {
+            inner: Mutex::new(Inner::default()),
+            changed: Condvar::new(),
+            loader,
+        })
+    }
+
+    /// Model id in use, if one is loaded or parked.
     pub fn active(&self) -> Option<String> {
-        self.inner.lock().ok().and_then(|i| i.active.clone())
+        self.inner.lock().ok().and_then(|i| {
+            if i.parked {
+                i.current.as_ref().map(|(spec, _)| spec.id.clone())
+            } else {
+                i.active.clone()
+            }
+        })
+    }
+
+    pub fn active_family(&self) -> Option<Family> {
+        let inner = self.inner.lock().ok()?;
+        inner.current.as_ref().map(|(spec, _)| spec.family)
     }
 
     pub fn loading(&self) -> Option<String> {
         self.inner.lock().ok().and_then(|i| i.loading.clone())
+    }
+
+    /// True while a model sits in memory.
+    pub fn is_loaded(&self) -> bool {
+        self.inner.lock().is_ok_and(|i| i.engine.is_some())
     }
 
     /// Loads `spec` on a background thread, replacing whatever was active.
@@ -58,7 +94,9 @@ impl EngineHost {
                 // Drop the old model now so its memory is free for the new one.
                 inner.engine = None;
                 inner.active = None;
+                inner.parked = false;
                 inner.loading = Some(spec.id.clone());
+                inner.current = Some((spec.clone(), opts.clone()));
                 inner.generation
             }
             Err(_) => {
@@ -72,7 +110,7 @@ impl EngineHost {
             .name("murmur-model-load".into())
             .spawn(move || {
                 let started = Instant::now();
-                let result = load(&spec, &opts);
+                let result = (host.loader)(&spec, &opts);
                 let outcome = match host.inner.lock() {
                     Ok(mut inner) if inner.generation == generation => {
                         inner.loading = None;
@@ -80,6 +118,9 @@ impl EngineHost {
                             inner.engine = Some(engine);
                             inner.active = Some(spec.id.clone());
                         });
+                        if outcome.is_err() {
+                            inner.current = None;
+                        }
                         host.changed.notify_all();
                         outcome
                     }
@@ -104,12 +145,55 @@ impl EngineHost {
         }
     }
 
-    /// Transcribes with the active engine, waiting for a load in progress.
+    /// Reloads the active model with new options (the Roman Urdu prompt).
+    pub fn reload(self: &Arc<Self>, opts: EngineOptions) {
+        let spec = match self.inner.lock() {
+            Ok(inner) if inner.loading.is_none() => inner.current.as_ref().map(|(s, _)| s.clone()),
+            _ => None,
+        };
+        if let Some(spec) = spec {
+            self.switch(spec, opts, |_| {});
+        }
+    }
+
+    /// Unloads the model to free memory, keeping it as the active choice.
+    /// Returns true if something was unloaded.
+    pub fn park(&self) -> bool {
+        let Ok(mut inner) = self.inner.lock() else {
+            return false;
+        };
+        if inner.engine.is_none() || inner.loading.is_some() {
+            return false;
+        }
+        inner.engine = None;
+        inner.active = None;
+        inner.parked = true;
+        if let Some((spec, _)) = &inner.current {
+            log::info!("unloaded {} after being idle", spec.id);
+        }
+        true
+    }
+
+    /// Starts loading a parked model again. Does nothing otherwise.
+    pub fn wake(self: &Arc<Self>) {
+        let current = match self.inner.lock() {
+            Ok(inner) if inner.parked => inner.current.clone(),
+            _ => None,
+        };
+        if let Some((spec, opts)) = current {
+            log::info!("loading {} again", spec.id);
+            self.switch(spec, opts, |_| {});
+        }
+    }
+
+    /// Transcribes with the active engine, waiting for a load in progress
+    /// and bringing back a parked model.
     pub fn transcribe(
-        &self,
+        self: &Arc<Self>,
         pcm16k_mono: &[f32],
         language: Option<&str>,
     ) -> Result<(String, Transcript)> {
+        self.wake();
         let (engine, id) = {
             let mut inner = self
                 .inner
@@ -138,6 +222,8 @@ fn load(spec: &LoadSpec, opts: &EngineOptions) -> Result<Arc<dyn SpeechEngine>> 
     let mut engine: Box<dyn SpeechEngine> = match spec.family {
         Family::Whisper => Box::new(WhisperEngine::new()),
         Family::Parakeet => Box::new(ParakeetEngine::new()),
+        Family::Moonshine => Box::new(MoonshineEngine::new()),
+        Family::Sensevoice => Box::new(SenseVoiceEngine::new()),
     };
     engine.load(&spec.path, opts)?;
     if !engine.is_loaded() {
@@ -149,7 +235,7 @@ fn load(spec: &LoadSpec, opts: &EngineOptions) -> Result<Arc<dyn SpeechEngine>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -161,11 +247,55 @@ mod tests {
         }
     }
 
+    /// Echoes the prompt it was loaded with.
+    struct Fake(String);
+
+    impl SpeechEngine for Fake {
+        fn id(&self) -> &'static str {
+            "fake"
+        }
+        fn load(&mut self, _: &Path, _: &EngineOptions) -> Result<()> {
+            Ok(())
+        }
+        fn unload(&mut self) {}
+        fn is_loaded(&self) -> bool {
+            true
+        }
+        fn transcribe(&self, _: &[f32], _: Option<&str>) -> Result<Transcript> {
+            Ok(Transcript {
+                text: self.0.clone(),
+                language: None,
+                segments: Vec::new(),
+                inference_ms: 0,
+            })
+        }
+    }
+
+    fn fake(_: &LoadSpec, opts: &EngineOptions) -> Result<Arc<dyn SpeechEngine>> {
+        Ok(Arc::new(Fake(opts.initial_prompt.clone().unwrap_or_default())))
+    }
+
+    fn loaded(host: &Arc<EngineHost>, prompt: &str) {
+        let (tx, rx) = mpsc::channel();
+        host.switch(
+            missing("whisper-small", Family::Whisper),
+            EngineOptions {
+                initial_prompt: Some(prompt.into()),
+                ..EngineOptions::default()
+            },
+            move |r| {
+                let _ = tx.send(r.is_ok());
+            },
+        );
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(true));
+    }
+
     #[test]
     fn empty_host_refuses_to_transcribe() {
         let host = EngineHost::new();
         assert!(host.active().is_none());
         assert!(host.transcribe(&[0.0; 16000], None).is_err());
+        assert!(!host.park());
     }
 
     #[test]
@@ -183,5 +313,30 @@ mod tests {
         assert!(host.active().is_none());
         assert!(host.loading().is_none());
         assert!(host.transcribe(&[0.0; 16000], None).is_err());
+    }
+
+    #[test]
+    fn parked_model_stays_active_and_comes_back_to_transcribe() {
+        let host = EngineHost::with_loader(fake);
+        loaded(&host, "one");
+        assert!(host.park());
+        assert!(!host.is_loaded());
+        assert_eq!(host.active().as_deref(), Some("whisper-small"));
+        assert_eq!(host.active_family(), Some(Family::Whisper));
+        let (id, t) = host.transcribe(&[0.0; 16000], None).unwrap();
+        assert_eq!((id.as_str(), t.text.as_str()), ("whisper-small", "one"));
+        assert!(host.is_loaded());
+    }
+
+    #[test]
+    fn reload_applies_new_options() {
+        let host = EngineHost::with_loader(fake);
+        loaded(&host, "one");
+        host.reload(EngineOptions {
+            initial_prompt: Some("two".into()),
+            ..EngineOptions::default()
+        });
+        let (_, t) = host.transcribe(&[0.0; 16000], None).unwrap();
+        assert_eq!(t.text, "two");
     }
 }

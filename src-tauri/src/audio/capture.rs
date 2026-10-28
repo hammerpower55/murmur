@@ -35,31 +35,86 @@ impl Recording {
     }
 }
 
+/// The test meter in Settings stops on its own after this long.
+const MONITOR_LIMIT: Duration = Duration::from_secs(60);
+
+/// Which microphone to use and how much to amplify it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputConfig {
+    /// Device name, None for the Windows default.
+    pub device: Option<String>,
+    /// 1.0 leaves the signal as it is.
+    pub gain: f32,
+}
+
+impl Default for InputConfig {
+    fn default() -> Self {
+        Self {
+            device: None,
+            gain: 1.0,
+        }
+    }
+}
+
 enum Command {
     Prepare,
+    Configure(InputConfig),
+    Monitor(bool),
     Start(Sender<Result<()>>),
     Stop(Sender<Result<Recording>>),
     Cancel,
 }
 
-/// Called with the input level every 50 ms while recording.
-pub type LevelCallback = Box<dyn Fn(Level) + Send>;
+/// What a level belongs to: a dictation, or the test meter in Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tap {
+    Recording,
+    Test,
+}
 
-/// Handle to the capture thread.
+/// Called with the input level every 50 ms while the microphone runs.
+pub type LevelCallback = Box<dyn Fn(Level, Tap) + Send>;
+
+/// Handle to the capture thread. Cheap to clone.
+#[derive(Clone)]
 pub struct Recorder {
     tx: Sender<Command>,
 }
 
+/// Names of the microphones Windows knows about.
+pub fn input_devices() -> Vec<String> {
+    let mut names: Vec<String> = cpal::default_host()
+        .input_devices()
+        .map(|devices| devices.filter_map(|d| device_name(&d)).collect())
+        .unwrap_or_default();
+    names.dedup();
+    names
+}
+
+fn device_name(device: &cpal::Device) -> Option<String> {
+    device.description().ok().map(|d| d.name().to_string())
+}
+
 impl Recorder {
     /// Starts the capture thread and builds the stream in the background.
-    pub fn spawn(on_level: LevelCallback) -> Result<Self> {
+    pub fn spawn(config: InputConfig, on_level: LevelCallback) -> Result<Self> {
         let (tx, rx) = mpsc::channel();
         std::thread::Builder::new()
             .name("murmur-audio".into())
-            .spawn(move || run(rx, on_level))
+            .spawn(move || run(rx, config, on_level))
             .context("could not start audio thread")?;
         let _ = tx.send(Command::Prepare);
         Ok(Self { tx })
+    }
+
+    /// Switches microphone or gain. Takes effect from the next dictation.
+    pub fn configure(&self, config: InputConfig) {
+        let _ = self.tx.send(Command::Configure(config));
+    }
+
+    /// Runs the microphone for the test meter without recording anything.
+    pub fn monitor(&self, on: bool) {
+        let _ = self.tx.send(Command::Monitor(on));
     }
 
     /// Starts recording. Returns once the microphone is running.
@@ -86,14 +141,17 @@ impl Recorder {
     }
 }
 
-fn run(rx: Receiver<Command>, on_level: LevelCallback) {
+fn run(rx: Receiver<Command>, mut config: InputConfig, on_level: LevelCallback) {
     let mut mic: Option<Mic> = None;
     // Device rate samples of the recording in progress, if any.
     let mut take: Option<Vec<f32>> = None;
     let mut meter = LevelMeter::new(TARGET_RATE);
+    // When the test meter started, while it runs.
+    let mut monitoring: Option<Instant> = None;
+    let mut scratch: Vec<f32> = Vec::new();
 
     loop {
-        let command = if take.is_some() {
+        let command = if take.is_some() || monitoring.is_some() {
             match rx.recv_timeout(DRAIN_INTERVAL) {
                 Ok(command) => Some(command),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -108,21 +166,71 @@ fn run(rx: Receiver<Command>, on_level: LevelCallback) {
 
         if let (Some(m), Some(samples)) = (mic.as_mut(), take.as_mut()) {
             let before = samples.len();
-            m.drain_into(samples);
+            m.drain_into(samples, config.gain);
             for level in meter.push(&samples[before..]) {
-                on_level(level);
+                on_level(level, Tap::Recording);
+            }
+        } else if let (Some(m), Some(since)) = (mic.as_mut(), monitoring) {
+            scratch.clear();
+            m.drain_into(&mut scratch, config.gain);
+            for level in meter.push(&scratch) {
+                on_level(level, Tap::Test);
+            }
+            if since.elapsed() > MONITOR_LIMIT {
+                monitoring = None;
+                m.pause();
             }
         }
 
         match command {
             Some(Command::Prepare) => {
-                if let Err(err) = ensure_mic(&mut mic) {
+                if let Err(err) = ensure_mic(&mut mic, &config) {
                     // Not fatal: the next Start tries again and reports it.
                     log::warn!("microphone not ready: {err:#}");
                 }
             }
+            Some(Command::Configure(new)) => {
+                let reopen = new.device != config.device;
+                config = new;
+                if reopen && take.is_none() {
+                    mic = None;
+                    monitoring = None;
+                    if let Err(err) = ensure_mic(&mut mic, &config) {
+                        log::warn!("microphone not ready: {err:#}");
+                    }
+                } else if reopen {
+                    // Mid dictation: switch once it is over.
+                    if let Some(m) = mic.as_ref() {
+                        m.invalid.store(true, Ordering::SeqCst);
+                    }
+                }
+            }
+            Some(Command::Monitor(on)) => {
+                if take.is_some() {
+                    // A dictation owns the microphone; the meter waits.
+                } else if on {
+                    match ensure_mic(&mut mic, &config).and_then(|m| m.start()) {
+                        Ok(()) => {
+                            monitoring = Some(Instant::now());
+                            if let Some(m) = mic.as_ref() {
+                                meter = LevelMeter::new(m.rate);
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!("test meter could not start: {err:#}");
+                            mic = None;
+                        }
+                    }
+                } else if monitoring.take().is_some() {
+                    if let Some(m) = mic.as_mut() {
+                        m.pause();
+                    }
+                }
+            }
             Some(Command::Start(reply)) => {
-                let result = ensure_mic(&mut mic).and_then(|m| m.start());
+                // A dictation takes over from the test meter.
+                monitoring = None;
+                let result = ensure_mic(&mut mic, &config).and_then(|m| m.start());
                 if let (Ok(()), Some(m)) = (&result, mic.as_ref()) {
                     take = Some(Vec::new());
                     meter = LevelMeter::new(m.rate);
@@ -135,7 +243,7 @@ fn run(rx: Receiver<Command>, on_level: LevelCallback) {
             Some(Command::Stop(reply)) => {
                 let result = match (mic.as_mut(), take.take()) {
                     (Some(m), Some(mut samples)) => {
-                        m.stop_into(&mut samples);
+                        m.stop_into(&mut samples, config.gain);
                         resample::to_16k(&samples, m.rate).map(|samples| Recording {
                             samples,
                             device_rate: m.rate,
@@ -158,7 +266,7 @@ fn run(rx: Receiver<Command>, on_level: LevelCallback) {
 
 /// Returns a usable stream, rebuilding it if there is none or the old one
 /// was invalidated (default device changed, device unplugged).
-fn ensure_mic(mic: &mut Option<Mic>) -> Result<&mut Mic> {
+fn ensure_mic<'a>(mic: &'a mut Option<Mic>, config: &InputConfig) -> Result<&'a mut Mic> {
     if mic
         .as_ref()
         .is_some_and(|m| m.invalid.load(Ordering::SeqCst))
@@ -167,9 +275,19 @@ fn ensure_mic(mic: &mut Option<Mic>) -> Result<&mut Mic> {
         *mic = None;
     }
     if mic.is_none() {
-        *mic = Some(Mic::open()?);
+        *mic = Some(Mic::open(config.device.as_deref())?);
     }
     mic.as_mut().ok_or_else(|| anyhow!("no microphone"))
+}
+
+/// Applies the input gain in place, clipping at full scale.
+pub fn amplify(samples: &mut [f32], gain: f32) {
+    if (gain - 1.0).abs() < f32::EPSILON {
+        return;
+    }
+    for s in samples {
+        *s = (*s * gain).clamp(-1.0, 1.0);
+    }
 }
 
 struct Mic {
@@ -180,11 +298,24 @@ struct Mic {
 }
 
 impl Mic {
-    fn open() -> Result<Self> {
+    /// Opens the named microphone, or the Windows default if it is gone.
+    fn open(name: Option<&str>) -> Result<Self> {
         let started = Instant::now();
-        let device = cpal::default_host()
-            .default_input_device()
-            .context("no microphone found")?;
+        let host = cpal::default_host();
+        let chosen = name.and_then(|name| {
+            let found = host
+                .input_devices()
+                .ok()?
+                .find(|d| device_name(d).as_deref() == Some(name));
+            if found.is_none() {
+                log::warn!("microphone {name} not found, using the default");
+            }
+            found
+        });
+        let device = match chosen {
+            Some(d) => d,
+            None => host.default_input_device().context("no microphone found")?,
+        };
         let supported = device
             .default_input_config()
             .context("could not read microphone settings")?;
@@ -233,9 +364,9 @@ impl Mic {
 
     /// Pauses the device, then collects what is still in the ring buffer so
     /// nothing arrives after the final drain.
-    fn stop_into(&mut self, samples: &mut Vec<f32>) {
+    fn stop_into(&mut self, samples: &mut Vec<f32>, gain: f32) {
         self.pause();
-        self.drain_into(samples);
+        self.drain_into(samples, gain);
     }
 
     fn pause(&mut self) {
@@ -245,13 +376,14 @@ impl Mic {
         }
     }
 
-    fn drain_into(&mut self, samples: &mut Vec<f32>) {
+    fn drain_into(&mut self, samples: &mut Vec<f32>, gain: f32) {
         let mut chunk = [0.0f32; 1024];
         loop {
             let n = self.consumer.pop_slice(&mut chunk);
             if n == 0 {
                 break;
             }
+            amplify(&mut chunk[..n], gain);
             samples.extend_from_slice(&chunk[..n]);
         }
     }

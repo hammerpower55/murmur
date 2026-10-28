@@ -1,9 +1,16 @@
 import type { ModelInfo, Progress } from "../lib/api";
 import { formatBytes, formatRam, percent } from "../lib/format";
 
+const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
+  whisper: "Whisper",
+  parakeet: "Parakeet",
+  moonshine: "Moonshine",
+  sensevoice: "SenseVoice",
+};
+
 function Dots({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center gap-2" aria-label={`${label} ${value} of 5`}>
+    <div className="flex items-center gap-2" title={`${label} on this device class`} aria-label={`${label} ${value} of 5 on this device class`}>
       <span className="w-16 text-xs text-zinc-500">{label}</span>
       <span className="flex gap-1">
         {[1, 2, 3, 4, 5].map((i) => (
@@ -56,7 +63,7 @@ export function ModelCard(p: Props) {
             {p.loading && <span className="text-xs text-zinc-400">Loading</span>}
           </div>
           <p className="mt-1 text-xs text-zinc-500">
-            {model.family === "whisper" ? "Whisper" : "Parakeet"} · {formatBytes(model.sizeBytes)}
+            {FAMILY_NAMES[model.family]} · {formatBytes(model.sizeBytes)}
             {model.ramMb > 0 && ` · ${formatRam(model.ramMb)}`} · {model.languagesLabel}
           </p>
           {model.note && <p className="mt-1 text-xs text-amber-300/80">{model.note}</p>}

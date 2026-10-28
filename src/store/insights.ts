@@ -1,5 +1,5 @@
 // Insights cache (spec 6.7): computed in SQL on the Rust side, kept here,
-// refreshed whenever a transcript is added.
+// refreshed whenever a transcript is added or the typing speed changes.
 
 import { create } from "zustand";
 import { api, events, type Insights } from "../lib/api";
@@ -22,4 +22,5 @@ export function subscribeInsights() {
   const { refresh } = useInsights.getState();
   void refresh();
   void events.transcriptAdded(() => void refresh());
+  void events.insightsChanged(() => void refresh());
 }
