@@ -49,7 +49,7 @@ function Editor({
     if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement)) void submit();
   };
   return (
-    <div className="flex flex-col gap-2 px-4 py-3" onKeyDown={onKey}>
+    <div className="flex animate-pop flex-col gap-2 px-4 py-3" onKeyDown={onKey}>
       <input
         autoFocus
         aria-label={fields[0].label}
@@ -138,14 +138,18 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
         </button>
       </div>
 
-      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+      {error && (
+        <p key={error} className="mt-3 animate-shake text-sm text-red-300">
+          {error}
+        </p>
+      )}
 
-      <div className="mt-3 divide-y divide-white/6 rounded-xl border border-white/8 bg-zinc-900/60">
+      <div className="mt-3 divide-y divide-white/6 surface rounded-xl">
         {editing === -1 && (
           <Editor initial={["", ""]} fields={fields} onSave={(p) => put(-1, p)} onCancel={() => setEditing(null)} />
         )}
         {pairs.length === 0 && editing !== -1 && (
-          <p className="px-4 py-10 text-center text-sm text-zinc-500">{empty}</p>
+          <p className="animate-pop px-4 py-10 text-center text-sm text-zinc-500">{empty}</p>
         )}
         {pairs.length > 0 && shown.length === 0 && (
           <p className="px-4 py-10 text-center text-sm text-zinc-500">Clear the search to see every entry.</p>
@@ -154,7 +158,12 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
           editing === i ? (
             <Editor key={i} initial={p} fields={fields} onSave={(np) => put(i, np)} onCancel={() => setEditing(null)} />
           ) : (
-            <div key={i} className="group flex items-start gap-4 px-4 py-2.5">
+            <div
+              // Keyed by content so deleting one row does not replay the rest.
+              key={`${p[0]}\u0000${p[1]}`}
+              className="group flex animate-rise items-start gap-4 px-4 py-2.5 transition-colors duration-200 hover:bg-white/[0.025]"
+              style={{ animationDelay: `${Math.min(i, 10) * 25}ms` }}
+            >
               <span className="w-2/5 shrink-0 truncate text-sm text-zinc-100" title={p[0]}>
                 {p[0]}
               </span>

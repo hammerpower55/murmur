@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TranscriptItem } from "../components/TranscriptItem";
+import { Empty } from "../components/Empty";
 import { api, events, type TranscriptRow } from "../lib/api";
 import { useHotkeyText } from "../store/settings";
 
@@ -37,7 +38,7 @@ export function History() {
   };
 
   return (
-    <section className="mx-auto max-w-3xl px-6 py-8">
+    <section className="stagger mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">History</h1>
 
       <input
@@ -47,14 +48,14 @@ export function History() {
         className="mt-6 w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-400 focus:outline-none"
       />
 
-      <div className="mt-4 flex flex-col gap-3">
-        {rows !== null && rows.length === 0 && (
-          <p className="py-10 text-center text-sm text-zinc-500">
-            {query.trim() === ""
-              ? `Hold ${hotkey} to dictate your first transcript.`
-              : "Clear the search to see every transcript."}
-          </p>
-        )}
+      <div className="stagger mt-4 flex flex-col gap-3">
+        {rows !== null &&
+          rows.length === 0 &&
+          (query.trim() === "" ? (
+            <Empty>Hold {hotkey} to dictate your first transcript.</Empty>
+          ) : (
+            <p className="animate-pop py-10 text-center text-sm text-zinc-500">Clear the search to see every transcript.</p>
+          ))}
         {rows?.map((r) => (
           <TranscriptItem key={r.id} row={r} onDelete={() => void remove(r.id)} />
         ))}

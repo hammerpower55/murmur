@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Dictionary } from "./app/Dictionary";
 import { History } from "./app/History";
 import { Home } from "./app/Home";
@@ -7,8 +7,10 @@ import { Models } from "./app/Models";
 import { Onboarding } from "./app/Onboarding";
 import { Settings } from "./app/Settings";
 import { Snippets } from "./app/Snippets";
+import { Wave } from "./components/Wave";
 import { api } from "./lib/api";
 import { APP_NAME } from "./lib/app";
+import { subscribeDictation, useDictation } from "./store/dictation";
 import { subscribeModels } from "./store/models";
 
 type Page = "home" | "insights" | "history" | "dictionary" | "snippets" | "models" | "settings";
@@ -24,11 +26,66 @@ const NAV: { id: Page; label: string }[] = [
   { id: "settings", label: "Settings" },
 ];
 
+/** The nav with a marker that slides to the page you are on. */
+function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
+  const list = useRef<HTMLDivElement>(null);
+  const [marker, setMarker] = useState<{ y: number; h: number } | null>(null);
+  // No slide on the very first placement, only between pages.
+  const [placed, setPlaced] = useState(false);
+  const activity = useDictation((d) => d.activity);
+
+  useLayoutEffect(() => {
+    const el = list.current?.querySelector<HTMLElement>(`[data-nav="${screen}"]`);
+    if (el) setMarker({ y: el.offsetTop, h: el.offsetHeight });
+  }, [screen]);
+  useEffect(() => {
+    if (marker && !placed) requestAnimationFrame(() => setPlaced(true));
+  }, [marker, placed]);
+
+  return (
+    <nav className="flex w-52 shrink-0 flex-col border-r border-white/6 bg-zinc-950/40 px-3 py-5">
+      <span className="flex items-center gap-2.5 px-3 pb-5 text-sm font-semibold text-zinc-100">
+        <Wave activity={activity} />
+        {APP_NAME}
+      </span>
+      <div ref={list} className="relative flex flex-col gap-1">
+        {marker && (
+          <span
+            aria-hidden
+            className="absolute inset-x-0 top-0 rounded-md bg-white/7 shadow-[inset_0_1px_0_oklch(1_0_0/0.05)]"
+            style={{
+              height: marker.h,
+              transform: `translateY(${marker.y}px)`,
+              transition: placed ? "transform 420ms var(--ease-out-quint), height 420ms var(--ease-out-quint)" : "none",
+            }}
+          >
+            <span className="absolute top-1/2 left-1.5 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent" />
+          </span>
+        )}
+        {NAV.map((item) => (
+          <button
+            key={item.id}
+            data-nav={item.id}
+            onClick={() => go(item.id)}
+            aria-current={screen === item.id ? "page" : undefined}
+            className={`relative rounded-md px-3 py-2 pl-5 text-left text-sm ${
+              screen === item.id ? "text-zinc-100" : "text-zinc-400 hover:bg-white/4 hover:text-zinc-200"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>("loading");
 
   useEffect(() => {
     subscribeModels();
+    subscribeDictation();
     api
       .onboardingNeeded()
       .then((needed) => setScreen(needed ? "onboarding" : "home"))
@@ -51,28 +108,18 @@ function App() {
 
   return (
     <div className="flex h-full">
-      <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-white/8 px-3 py-5">
-        <span className="px-3 pb-4 text-sm font-semibold text-zinc-100">{APP_NAME}</span>
-        {NAV.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setScreen(item.id)}
-            className={`rounded-md px-3 py-2 text-left text-sm ${
-              screen === item.id ? "bg-white/8 text-zinc-100" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <Nav screen={screen} go={setScreen} />
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {screen === "home" && <Home onSeeHistory={() => setScreen("history")} />}
-        {screen === "insights" && <Insights />}
-        {screen === "history" && <History />}
-        {screen === "dictionary" && <Dictionary />}
-        {screen === "snippets" && <Snippets />}
-        {screen === "models" && <Models />}
-        {screen === "settings" && <Settings onOpenModels={() => setScreen("models")} />}
+        {/* Keyed by page so each visit plays its entrance. */}
+        <div key={screen} className="animate-page">
+          {screen === "home" && <Home onSeeHistory={() => setScreen("history")} />}
+          {screen === "insights" && <Insights />}
+          {screen === "history" && <History />}
+          {screen === "dictionary" && <Dictionary />}
+          {screen === "snippets" && <Snippets />}
+          {screen === "models" && <Models />}
+          {screen === "settings" && <Settings onOpenModels={() => setScreen("models")} />}
+        </div>
       </main>
     </div>
   );

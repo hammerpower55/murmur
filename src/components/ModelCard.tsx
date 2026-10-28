@@ -49,18 +49,18 @@ export function ModelCard(p: Props) {
 
   return (
     <article
-      className={`rounded-xl border bg-zinc-900/60 p-4 ${p.active ? "border-zinc-400/40" : "border-white/8"}`}
+      className={`surface lift rounded-xl p-4 ${p.active ? "ring-1 ring-accent/45" : ""}`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-zinc-100">{model.name}</h3>
             {p.active && (
-              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-900">
+              <span className="animate-pop rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-ink">
                 Active
               </span>
             )}
-            {p.loading && <span className="text-xs text-zinc-400">Loading</span>}
+            {p.loading && <span className="animate-breathe text-xs text-accent">Loading</span>}
           </div>
           <p className="mt-1 text-xs text-zinc-500">
             {FAMILY_NAMES[model.family]} · {formatBytes(model.sizeBytes)}
@@ -108,11 +108,11 @@ export function ModelCard(p: Props) {
       )}
 
       {downloading && p.progress && (
-        <div className="mt-3">
+        <div className="mt-3 animate-pop">
           <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
             <div
-              className="h-full rounded-full bg-zinc-100 transition-[width] duration-150"
-              style={{ width: `${percent(p.progress.done, p.progress.total)}%` }}
+              className="h-full origin-left rounded-full bg-accent transition-transform duration-300 ease-out"
+              style={{ transform: `scaleX(${percent(p.progress.done, p.progress.total) / 100})` }}
             />
           </div>
           <p className="mt-1.5 text-xs text-zinc-500">
@@ -121,7 +121,7 @@ export function ModelCard(p: Props) {
         </div>
       )}
 
-      {p.error && <p className="mt-3 text-xs text-red-300">{p.error}</p>}
+      {p.error && <p key={p.error} className="mt-3 animate-shake text-xs text-red-300">{p.error}</p>}
     </article>
   );
 }

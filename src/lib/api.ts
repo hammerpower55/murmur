@@ -171,6 +171,9 @@ export const api = {
 export const events = {
   transcriptAdded: (cb: () => void): Promise<UnlistenFn> => listen("transcript-added", () => cb()),
   insightsChanged: (cb: () => void): Promise<UnlistenFn> => listen("insights-changed", () => cb()),
+  /** idle, recording, processing, cancelled or error. */
+  dictationState: (cb: (state: string) => void): Promise<UnlistenFn> =>
+    listen<string>("dictation-state", (e) => cb(e.payload)),
   micLevel: (cb: (rms: number) => void): Promise<UnlistenFn> =>
     listen<{ rms: number; peak: number }>("mic-level", (e) => cb(e.payload.rms)),
   modelsChanged: (cb: () => void): Promise<UnlistenFn> => listen("models-changed", () => cb()),

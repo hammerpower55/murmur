@@ -70,7 +70,7 @@ function HotkeyRow({
   return (
     <Row label={label}>
       {capturing ? (
-        <span className="text-sm text-zinc-300">Press keys</span>
+        <span className="animate-breathe text-sm font-medium text-accent">Press keys</span>
       ) : (
         <span title={hotkeyLabel(keys)} className={disabled ? "opacity-40" : ""}>
           <Keys names={keys} label={keyLabel} />
@@ -104,8 +104,8 @@ function MicrophoneTest() {
     <Row label="Test microphone">
       <div className="h-2 w-40 overflow-hidden rounded-full bg-zinc-800" aria-hidden>
         <div
-          className="h-full rounded-full bg-zinc-100 transition-[width] duration-75"
-          style={{ width: `${Math.round(Math.min(1, level) * 100)}%` }}
+          className="h-full origin-left rounded-full bg-accent transition-transform duration-75 ease-out"
+          style={{ transform: `scaleX(${Math.min(1, level)})` }}
         />
       </div>
       <button className={`${buttonClass} w-16`} onClick={() => setOn(!on)}>
@@ -194,7 +194,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
   };
 
   return (
-    <section className="mx-auto max-w-3xl px-6 py-8 pb-24">
+    <section className="stagger mx-auto max-w-3xl px-6 py-8 pb-24">
       <h1 className="text-xl font-semibold text-zinc-100">Settings</h1>
 
       <Section title="General">
@@ -415,7 +415,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
       {error && (
         <div
           role="alert"
-          className="fixed inset-x-0 bottom-6 mx-auto flex w-fit max-w-[90%] items-center gap-4 rounded-lg border border-red-300/20 bg-zinc-900 px-4 py-2.5 text-sm text-red-200 shadow-lg"
+          className="surface fixed inset-x-0 bottom-6 mx-auto flex w-fit max-w-[90%] animate-rise items-center gap-4 rounded-lg px-4 py-2.5 text-sm text-red-200"
         >
           {error}
           <button className="text-zinc-400 hover:text-zinc-200" onClick={clearError}>

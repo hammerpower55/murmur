@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { buttonClass } from "../components/controls";
+import { buttonClass, Tabs } from "../components/controls";
 import { CsvButtons } from "../components/CsvButtons";
 import { PairList, type Pair } from "../components/PairList";
 import { useText } from "../store/text";
@@ -25,23 +25,23 @@ export function Dictionary() {
 
   if (!data) return null;
 
-  const tabClass = (t: Tab) =>
-    `rounded-md px-3 py-1.5 text-sm ${
-      tab === t ? "bg-white/8 text-zinc-100" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-    }`;
-
   return (
-    <section className="mx-auto max-w-3xl px-6 py-8">
+    <section className="stagger mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">Dictionary</h1>
 
       <div className="mt-6 flex items-center gap-1">
-        <button className={tabClass("dictionary")} onClick={() => setTab("dictionary")}>
-          Words
-        </button>
-        <button className={tabClass("romanUrdu")} onClick={() => setTab("romanUrdu")}>
-          Roman Urdu
-        </button>
-        <div className="ml-auto">
+        <Tabs
+          tabs={[
+            ["dictionary", "Words"],
+            ["romanUrdu", "Roman Urdu"],
+          ]}
+          value={tab}
+          onChange={(t) => {
+            setConfirmReset(false);
+            setTab(t);
+          }}
+        />
+        <div key={tab} className="ml-auto animate-pop">
           {tab === "dictionary" ? (
             <CsvButtons kind="dictionary" onImported={() => void load()} />
           ) : confirmReset ? (
@@ -67,7 +67,7 @@ export function Dictionary() {
         </div>
       </div>
 
-      <div className="mt-4">
+      <div key={tab} className="mt-4 animate-page">
         {tab === "dictionary" ? (
           <PairList
             pairs={data.dictionary.map((e): Pair => [e.spoken, e.written])}

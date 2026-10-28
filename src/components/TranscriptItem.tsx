@@ -13,6 +13,8 @@ function AppIcon({ app }: { app: string | null }) {
   );
 }
 
+const FRESH_MS = 8000;
+
 interface Props {
   row: TranscriptRow;
   onDelete?: () => void;
@@ -20,6 +22,8 @@ interface Props {
 
 export function TranscriptItem({ row, onDelete }: Props) {
   const [copied, setCopied] = useState(false);
+  // Dictated in the last few seconds: greet it with a soft ring, once.
+  const [fresh] = useState(() => Date.now() - new Date(row.createdAt).getTime() < FRESH_MS);
 
   const copy = async () => {
     await navigator.clipboard.writeText(row.finalText);
@@ -28,7 +32,7 @@ export function TranscriptItem({ row, onDelete }: Props) {
   };
 
   return (
-    <article className="group rounded-xl border border-white/8 bg-zinc-900/60 px-4 py-3">
+    <article className={`surface lift group rounded-xl px-4 py-3 ${fresh ? "fresh" : ""}`}>
       <div className="flex items-center gap-2 text-xs text-zinc-500">
         <AppIcon app={row.appName} />
         <span className="truncate text-zinc-400" title={row.appTitle ?? undefined}>
@@ -51,7 +55,9 @@ export function TranscriptItem({ row, onDelete }: Props) {
             onClick={() => void copy()}
             className="rounded px-2 py-0.5 text-zinc-300 hover:bg-white/8"
           >
-            {copied ? "Copied" : "Copy"}
+            <span key={copied ? "copied" : "copy"} className={copied ? "inline-block animate-pop text-accent" : ""}>
+              {copied ? "Copied" : "Copy"}
+            </span>
           </button>
           {onDelete && (
             <button onClick={onDelete} className="rounded px-2 py-0.5 text-zinc-300 hover:bg-white/8">

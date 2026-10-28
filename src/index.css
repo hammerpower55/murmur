@@ -1,5 +1,111 @@
 @import "tailwindcss";
 
+/* Design context: .impeccable.md. Quiet, warm, attentive. */
+
+@theme {
+  /* Warm neutrals: Tailwind's zinc scale re-tinted toward the amber of the
+     app icon, so every zinc class in the app turns warm at once. */
+  --color-zinc-50: oklch(0.985 0.002 80);
+  --color-zinc-100: oklch(0.965 0.004 80);
+  --color-zinc-200: oklch(0.915 0.006 78);
+  --color-zinc-300: oklch(0.865 0.008 76);
+  --color-zinc-400: oklch(0.705 0.012 74);
+  --color-zinc-500: oklch(0.555 0.012 72);
+  --color-zinc-600: oklch(0.445 0.011 70);
+  --color-zinc-700: oklch(0.37 0.01 70);
+  --color-zinc-800: oklch(0.275 0.008 70);
+  --color-zinc-900: oklch(0.215 0.007 70);
+  --color-zinc-950: oklch(0.155 0.006 70);
+  --color-white: oklch(0.99 0.004 80);
+
+  /* The one accent, from the app icon. Rare by design. */
+  --color-accent: oklch(0.82 0.15 80);
+  --color-accent-strong: oklch(0.87 0.14 85);
+  --color-accent-ink: oklch(0.24 0.05 70);
+
+  /* Motion tokens. Exponential ease out; exits a little faster than entries. */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-quart: cubic-bezier(0.5, 0, 0.75, 0);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --duration-press: 120ms;
+  --duration-state: 220ms;
+  --duration-enter: 560ms;
+
+  --animate-rise: rise var(--duration-enter) var(--ease-out-expo) both;
+  --animate-page: page-in 420ms var(--ease-out-quint) both;
+  --animate-pop: pop-in 280ms var(--ease-out-quint) both;
+  --animate-shake: shake 360ms var(--ease-out-quint);
+  --animate-breathe: breathe 2.4s var(--ease-in-out-quart) infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes shake {
+  20% {
+    transform: translateX(-4px);
+  }
+  45% {
+    transform: translateX(3px);
+  }
+  70% {
+    transform: translateX(-2px);
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* A bar of the dictation wave: height follows --level while recording. */
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes grow-up {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+}
+
+/* A transcript that just arrived: a soft amber ring that fades out. */
+@keyframes fresh-ring {
+  from {
+    box-shadow: 0 0 0 1px oklch(0.82 0.15 80 / 0.55), 0 0 0 6px oklch(0.82 0.15 80 / 0.12);
+  }
+  to {
+    box-shadow: 0 0 0 1px oklch(0.82 0.15 80 / 0), 0 0 0 6px oklch(0.82 0.15 80 / 0);
+  }
+}
+
 html,
 body,
 #root {
@@ -7,6 +113,96 @@ body,
 }
 
 body {
-  background: #141416;
-  color: #f4f4f5;
+  background: var(--color-zinc-950);
+  color: var(--color-zinc-100);
+}
+
+@layer base {
+  button,
+  a,
+  [role="switch"] {
+    transition:
+      color var(--duration-state) var(--ease-out-quint),
+      background-color var(--duration-state) var(--ease-out-quint),
+      border-color var(--duration-state) var(--ease-out-quint),
+      opacity var(--duration-state) var(--ease-out-quint),
+      transform var(--duration-press) var(--ease-out-quint);
+  }
+
+  button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  input,
+  textarea,
+  select {
+    transition: border-color var(--duration-state) var(--ease-out-quint);
+  }
+}
+
+@layer components {
+  /* A card lit from above: faint top highlight, soft layered shadow. */
+  .surface {
+    border: 1px solid oklch(1 0 0 / 0.07);
+    background: linear-gradient(180deg, oklch(0.235 0.008 70 / 0.8), oklch(0.2 0.007 70 / 0.65));
+    box-shadow:
+      inset 0 1px 0 oklch(1 0.01 80 / 0.05),
+      0 1px 2px oklch(0 0 0 / 0.3),
+      0 10px 24px -14px oklch(0 0 0 / 0.6);
+  }
+
+  /* Cards you can act on rise a little under the pointer. */
+  .lift {
+    transition:
+      transform 260ms var(--ease-out-quint),
+      box-shadow 260ms var(--ease-out-quint),
+      border-color 260ms var(--ease-out-quint);
+  }
+  .lift:hover {
+    transform: translateY(-2px);
+    border-color: oklch(1 0 0 / 0.11);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0.01 80 / 0.06),
+      0 2px 4px oklch(0 0 0 / 0.3),
+      0 18px 32px -16px oklch(0 0 0 / 0.7);
+  }
+
+  /* Children of a page rise in one after another. */
+  .stagger > * {
+    animation: var(--animate-rise);
+  }
+  .stagger > :nth-child(2) { animation-delay: 50ms; }
+  .stagger > :nth-child(3) { animation-delay: 100ms; }
+  .stagger > :nth-child(4) { animation-delay: 150ms; }
+  .stagger > :nth-child(5) { animation-delay: 200ms; }
+  .stagger > :nth-child(6) { animation-delay: 250ms; }
+  .stagger > :nth-child(7) { animation-delay: 300ms; }
+  .stagger > :nth-child(8) { animation-delay: 340ms; }
+  .stagger > :nth-child(n + 9) { animation-delay: 380ms; }
+
+  .fresh {
+    animation: fresh-ring 1.8s var(--ease-out-quint) both;
+  }
+}
+
+/* Reduced motion: every animation becomes an instant change. Colour and
+   opacity changes stay, movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .lift:hover,
+  button:active:not(:disabled) {
+    transform: none;
+  }
 }

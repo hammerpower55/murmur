@@ -119,3 +119,4 @@ The active model loads once at start (or on switch) and stays in memory; "Unload
 - Hotkey down to pill visible under 100 ms. Key up to pasted text under 3 s for a 10 s clip on the default model, under 1.5 s with Parakeet v2.
 - `tests/audio/` holds 10 reference clips (5 English, 5 English + Roman Urdu). Every engine change reruns them and prints WER.
 - Every screen handles its empty state with one line of copy.
+- UI design context (audience, personality, the one amber accent, motion rules) is in `.impeccable.md`. Motion tokens, keyframes, `.surface`, `.lift` and `.stagger` live in `src/index.css`; animate transform and opacity only, and everything must still work under prefers-reduced-motion.

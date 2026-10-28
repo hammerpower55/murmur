@@ -1,10 +1,14 @@
 import { useEffect, type ReactNode } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CountUp } from "../components/CountUp";
+import { Empty } from "../components/Empty";
 import { appLabel, formatDelta, formatMinutes, plural, shortDate } from "../lib/format";
 import { useAppIcon } from "../lib/icons";
+import { prefersReducedMotion } from "../lib/motion";
 import { subscribeInsights, useInsights } from "../store/insights";
 
-const BAR = "#e4e4e7"; // zinc-200
+const BAR = "var(--color-zinc-200)";
+const ACCENT = "var(--color-accent)";
 const GRID = "rgba(255,255,255,0.06)";
 const AXIS = { fill: "#71717a", fontSize: 11 }; // zinc-500
 const TOOLTIP = {
@@ -19,9 +23,20 @@ const TOOLTIP = {
   cursor: { fill: "rgba(255,255,255,0.04)" },
 };
 
-function Card({ label, value, detail }: { label: string; value: string; detail?: string }) {
+/** Charts grow in one after another, unless motion is reduced. */
+function grow(order: number) {
+  const on = !prefersReducedMotion();
+  return {
+    isAnimationActive: on,
+    animationBegin: 150 + order * 140,
+    animationDuration: 800,
+    animationEasing: "ease-out" as const,
+  };
+}
+
+function Card({ label, value, detail }: { label: string; value: ReactNode; detail?: string }) {
   return (
-    <div className="rounded-xl border border-white/8 bg-zinc-900/60 px-4 py-3">
+    <div className="surface rounded-xl px-4 py-3">
       <p className="text-xs text-zinc-500">{label}</p>
       <p className="mt-1 truncate text-2xl font-semibold text-zinc-100 tabular-nums">{value}</p>
       {detail && <p className="mt-0.5 text-xs text-zinc-500">{detail}</p>}
@@ -31,7 +46,7 @@ function Card({ label, value, detail }: { label: string; value: string; detail?:
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-white/8 bg-zinc-900/60 px-4 pb-3 pt-4">
+    <section className="surface rounded-xl px-4 pb-3 pt-4">
       <h2 className="text-sm font-medium text-zinc-300">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
@@ -65,8 +80,11 @@ function HourStrip({ counts }: { counts: number[] }) {
           <div
             key={h}
             title={`${h}:00, ${plural(c, "dictation", "dictations")}`}
-            className="h-8 rounded-sm bg-zinc-100"
-            style={{ opacity: c === 0 ? 0.05 : 0.15 + 0.85 * (c / max) }}
+            className="h-8 origin-bottom rounded-sm bg-zinc-100"
+            style={{
+              opacity: c === 0 ? 0.05 : 0.15 + 0.85 * (c / max),
+              animation: `grow-up 520ms var(--ease-out-expo) ${300 + h * 22}ms both`,
+            }}
           />
         ))}
       </div>
@@ -91,28 +109,30 @@ export function Insights() {
     return (
       <section className="mx-auto max-w-4xl px-6 py-8">
         <h1 className="text-xl font-semibold text-zinc-100">Insights</h1>
-        <p className="py-16 text-center text-sm text-zinc-500">Dictate a few times to see your insights.</p>
+        <Empty>Dictate a few times to see your insights.</Empty>
       </section>
     );
   }
 
   const perDay = data.wordsPerDay.map((d) => ({ ...d, label: shortDate(d.date) }));
+  const today = perDay.length - 1;
+  const n = (v: number) => v.toLocaleString("en-US");
   const apps = data.wordsByApp.map((a) => ({ app: a.app ?? "", words: a.words }));
 
   return (
-    <section className="mx-auto max-w-4xl px-6 py-8">
+    <section className="stagger mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">Insights</h1>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
+      <div className="stagger mt-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Card
           label="Words this week"
-          value={data.wordsThisWeek.toLocaleString("en-US")}
+          value={<CountUp value={data.wordsThisWeek} format={n} />}
           detail={formatDelta(data.wordsThisWeek, data.wordsLastWeek)}
         />
-        <Card label="Total words" value={data.totalWords.toLocaleString("en-US")} />
-        <Card label="Average speed" value={`${Math.round(data.averageWpm)} wpm`} detail="Last 30 days" />
-        <Card label="Time saved" value={formatMinutes(data.minutesSaved)} detail="Compared with typing" />
-        <Card label="Streak" value={plural(data.streakDays, "day", "days")} />
+        <Card label="Total words" value={<CountUp value={data.totalWords} format={n} />} />
+        <Card label="Average speed" value={<CountUp value={data.averageWpm} format={(v) => `${v} wpm`} />} detail="Last 30 days" />
+        <Card label="Time saved" value={<CountUp value={data.minutesSaved} format={formatMinutes} />} detail="Compared with typing" />
+        <Card label="Streak" value={<CountUp value={data.streakDays} format={(v) => plural(v, "day", "days")} />} />
         <Card
           label="Most used word"
           value={data.mostUsedWord?.word ?? "None yet"}
@@ -120,7 +140,7 @@ export function Insights() {
         />
       </div>
 
-      <div className="mt-6 flex flex-col gap-4">
+      <div className="stagger mt-6 flex flex-col gap-4">
         <Panel title="Words per day">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={perDay} margin={{ top: 4, right: 4, bottom: 0, left: -12 }}>
@@ -128,7 +148,11 @@ export function Insights() {
               <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} interval={4} />
               <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} width={44} />
               <Tooltip {...TOOLTIP} formatter={(v) => [Number(v).toLocaleString("en-US"), "Words"]} />
-              <Bar dataKey="words" fill={BAR} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="words" fill={BAR} radius={[3, 3, 0, 0]} {...grow(0)}>
+                {perDay.map((_, i) => (
+                  <Cell key={i} fill={i === today ? ACCENT : BAR} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Panel>
@@ -147,7 +171,7 @@ export function Insights() {
                   width={96}
                 />
                 <Tooltip {...TOOLTIP} formatter={(v) => [Number(v).toLocaleString("en-US"), "Times"]} />
-                <Bar dataKey="count" fill={BAR} radius={[0, 3, 3, 0]} barSize={14} isAnimationActive={false} />
+                <Bar dataKey="count" fill={BAR} radius={[0, 3, 3, 0]} barSize={14} {...grow(1)} />
               </BarChart>
             </ResponsiveContainer>
           </Panel>
@@ -172,7 +196,7 @@ export function Insights() {
                     labelFormatter={(a) => appLabel(String(a) || null)}
                     formatter={(v) => [Number(v).toLocaleString("en-US"), "Words"]}
                   />
-                  <Bar dataKey="words" fill={BAR} radius={[0, 3, 3, 0]} barSize={14} isAnimationActive={false} />
+                  <Bar dataKey="words" fill={BAR} radius={[0, 3, 3, 0]} barSize={14} {...grow(2)} />
                 </BarChart>
               </ResponsiveContainer>
             )}
