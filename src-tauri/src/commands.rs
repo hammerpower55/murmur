@@ -6,6 +6,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::db::insights::Insights;
 use crate::db::stats::HomeSummary;
 use crate::db::transcripts::TranscriptRow;
 use crate::db::Db;
@@ -113,4 +114,13 @@ pub fn home_summary(db: History) -> Result<HomeSummary, String> {
 #[tauri::command]
 pub fn app_icon(app: AppHandle, app_name: String) -> Option<String> {
     icons::data_url(&paths::icons_dir(&app).ok()?, &app_name)
+}
+
+#[tauri::command]
+pub fn insights(app: AppHandle, db: History) -> Result<Insights, String> {
+    db.insights(
+        chrono::Local::now().date_naive(),
+        settings::typing_wpm(&app),
+    )
+    .map_err(line)
 }

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   appLabel,
   formatBytes,
+  formatDelta,
   formatDuration,
+  formatMinutes,
   formatRam,
   formatWhen,
   percent,
   plural,
+  shortDate,
   supportsLanguage,
 } from "./format";
 
@@ -73,5 +76,22 @@ describe("appLabel and plural", () => {
   it("pluralises with thousands separators", () => {
     expect(plural(1, "word", "words")).toBe("1 word");
     expect(plural(1234, "word", "words")).toBe("1,234 words");
+  });
+});
+
+describe("insights formatting", () => {
+  it("formats time saved", () => {
+    expect(formatMinutes(20.67)).toBe("21 min");
+    expect(formatMinutes(65)).toBe("1 h 5 min");
+    expect(formatMinutes(180)).toBe("3 h");
+    expect(formatMinutes(-4)).toBe("0 min");
+  });
+  it("formats the weekly change", () => {
+    expect(formatDelta(95, 95)).toBe("Same as last week");
+    expect(formatDelta(1200, 200)).toBe("+1,000 vs last week");
+    expect(formatDelta(3, 10)).toBe("-7 vs last week");
+  });
+  it("shortens dates", () => {
+    expect(shortDate("2026-10-28")).toBe("28 Oct");
   });
 });

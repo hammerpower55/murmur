@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, errorText } from "../lib/api";
+import { useInsights } from "../store/insights";
 
 /** Phase 6 needs only Privacy > Clear history; the full page arrives in Phase 8. */
 export function Settings() {
@@ -10,6 +11,7 @@ export function Settings() {
     setConfirming(false);
     try {
       await api.clearHistory();
+      void useInsights.getState().refresh();
       setStatus("History cleared");
     } catch (err) {
       setStatus(errorText(err));

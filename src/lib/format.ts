@@ -67,3 +67,25 @@ export function appLabel(appName: string | null): string {
 export function plural(n: number, one: string, many: string): string {
   return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 }
+
+/** "21 min", "1 h 5 min", "3 h". */
+export function formatMinutes(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+/** "+12 vs last week", "-3 vs last week", "Same as last week". */
+export function formatDelta(now: number, before: number): string {
+  const d = now - before;
+  if (d === 0) return "Same as last week";
+  return `${d > 0 ? "+" : "-"}${Math.abs(d).toLocaleString("en-US")} vs last week`;
+}
+
+/** "2026-10-28" to "28 Oct". */
+export function shortDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}

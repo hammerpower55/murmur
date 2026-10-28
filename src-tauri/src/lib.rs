@@ -70,6 +70,7 @@ pub fn run() {
             commands::clear_history,
             commands::home_summary,
             commands::app_icon,
+            commands::insights,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -85,7 +86,14 @@ pub fn run() {
             models.load_at_startup();
             app.manage(models);
 
-            let db = Arc::new(Db::open(&paths::data_dir(&handle)?.join(db::FILE))?);
+            let db_path = paths::data_dir(&handle)?.join(db::FILE);
+            // Debug builds can be pointed at a fixture (tests/seed_insights.py).
+            #[cfg(debug_assertions)]
+            let db_path = std::env::var_os("MURMUR_HISTORY_DB")
+                .map(PathBuf::from)
+                .unwrap_or(db_path);
+            log::info!("history: {}", db_path.display());
+            let db = Arc::new(Db::open(&db_path)?);
             app.manage(db.clone());
 
             dictation::spawn(handle.clone(), host, db, paths::icons_dir(&handle)?)?;

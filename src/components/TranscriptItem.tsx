@@ -1,26 +1,10 @@
-import { useEffect, useState } from "react";
-import { api, type TranscriptRow } from "../lib/api";
+import { useState } from "react";
+import { type TranscriptRow } from "../lib/api";
+import { useAppIcon } from "../lib/icons";
 import { appLabel, formatDuration, formatWhen, plural } from "../lib/format";
 
-/** Icons are fetched once per app for the life of the window. */
-const iconCache = new Map<string, Promise<string | null>>();
-
 function AppIcon({ app }: { app: string | null }) {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    if (!app) return;
-    let cancelled = false;
-    let pending = iconCache.get(app);
-    if (!pending) {
-      pending = api.appIcon(app).catch(() => null);
-      iconCache.set(app, pending);
-    }
-    void pending.then((url) => !cancelled && setSrc(url));
-    return () => {
-      cancelled = true;
-    };
-  }, [app]);
-
+  const src = useAppIcon(app);
   return src ? (
     <img src={src} alt="" className="h-4 w-4 shrink-0" />
   ) : (

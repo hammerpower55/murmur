@@ -58,6 +58,29 @@ export interface HomeSummary {
   recent: TranscriptRow[];
 }
 
+export interface WordCount {
+  word: string;
+  count: number;
+}
+
+export interface Insights {
+  totalDictations: number;
+  wordsThisWeek: number;
+  /** Last week over the same days (Monday through today's weekday). */
+  wordsLastWeek: number;
+  totalWords: number;
+  averageWpm: number;
+  minutesSaved: number;
+  streakDays: number;
+  mostUsedWord: WordCount | null;
+  /** Last 30 days, oldest first. */
+  wordsPerDay: { date: string; words: number }[];
+  topWords: WordCount[];
+  wordsByApp: { app: string | null; words: number }[];
+  /** 24 entries, one per hour of the day. */
+  dictationsByHour: number[];
+}
+
 export const api = {
   listModels: () => invoke<ModelsView>("list_models"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
@@ -74,6 +97,7 @@ export const api = {
   clearHistory: () => invoke<void>("clear_history"),
   homeSummary: () => invoke<HomeSummary>("home_summary"),
   appIcon: (appName: string) => invoke<string | null>("app_icon", { appName }),
+  insights: () => invoke<Insights>("insights"),
 };
 
 export const events = {

@@ -19,6 +19,9 @@ pub const ROMAN_URDU_MIXING: bool = true;
 const FILE: &str = "settings.json";
 const ACTIVE_MODEL: &str = "activeModel";
 const ONBOARDED: &str = "onboarded";
+const TYPING_WPM: &str = "typingWpm";
+/// Assumed typing speed for "time saved" (spec 6.7). Editable in Phase 8.
+pub const DEFAULT_TYPING_WPM: f64 = 40.0;
 
 fn store(app: &AppHandle) -> Result<Arc<Store<Wry>>> {
     let path = paths::data_dir(app)?.join(FILE);
@@ -49,6 +52,15 @@ pub fn onboarded(app: &AppHandle) -> bool {
         .and_then(|s| s.get(ONBOARDED))
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
+}
+
+pub fn typing_wpm(app: &AppHandle) -> f64 {
+    store(app)
+        .ok()
+        .and_then(|s| s.get(TYPING_WPM))
+        .and_then(|v| v.as_f64())
+        .filter(|w| *w > 0.0)
+        .unwrap_or(DEFAULT_TYPING_WPM)
 }
 
 pub fn set_onboarded(app: &AppHandle) -> Result<()> {

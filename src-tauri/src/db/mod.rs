@@ -2,6 +2,7 @@
 //! One connection behind a mutex, shared by the dictation thread (inserts)
 //! and the UI commands (reads, deletes).
 
+pub mod insights;
 pub mod schema;
 pub mod stats;
 pub mod transcripts;
