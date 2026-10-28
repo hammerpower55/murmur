@@ -17,8 +17,18 @@ use whisper_rs::{
 use super::{EngineOptions, Segment, SpeechEngine, Transcript};
 use crate::audio::TARGET_RATE;
 
-/// Primes the decoder so Urdu words come out in Latin script. Tune here.
-pub const ROMAN_URDU_PROMPT: &str = "Acha theek hai, main abhi check karta hoon aur aapko bata deta hoon. Okay, let me check and get back to you.";
+/// Primes the decoder so Urdu comes out in Latin script. Tune here, and
+/// rerun `cargo test roman_urdu_strategies -- --ignored --nocapture`.
+///
+/// It must be Roman Urdu throughout. With English sentences in it (the
+/// spec's original prompt) Whisper took the English language token as a cue
+/// to translate: on the mixed fixture clips it translated or dropped every
+/// Urdu heavy sentence, 71% WER. This prompt brings that to 18%, and the
+/// remaining errors are spelling variants the Roman Urdu table cleans up.
+pub const ROMAN_URDU_PROMPT: &str = "Assalam o alaikum. Aaj ka din bohat busy tha, main abhi ghar pohncha hoon. \
+Acha theek hai, mujhe lagta hai ke hum kal tak yeh kaam khatam kar lenge. \
+Tum ne meri email dekhi? Bhai please jaldi bhej do, client wait kar raha hai. \
+Koi baat nahi, main shaam ko call karta hoon aur sab samjha deta hoon.";
 
 /// whisper.cpp returns nothing for clips under one second, so short clips
 /// are padded with silence up to this length.
@@ -175,7 +185,7 @@ mod tests {
     #[test]
     fn prompt_echo_is_detected() {
         assert!(is_prompt_echo(
-            "Okay, let me check and get back to you.",
+            "Koi baat nahi, main shaam ko call karta hoon.",
             ROMAN_URDU_PROMPT
         ));
         assert!(is_prompt_echo("acha theek hai", ROMAN_URDU_PROMPT));
@@ -196,7 +206,7 @@ mod tests {
     #[test]
     fn longer_speech_that_contains_prompt_words_survives() {
         assert!(!is_prompt_echo(
-            "Okay, let me check the invoice and get back to you tomorrow.",
+            "Acha, main kal invoice check karke aapko bata deta hoon.",
             ROMAN_URDU_PROMPT
         ));
     }

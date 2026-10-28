@@ -129,7 +129,13 @@ fn fixture_wer() {
         opts.n_threads
     );
 
-    let mut totals: Vec<(String, usize, usize)> = Vec::new();
+    // Raw engine errors, and errors after the text pipeline (what is pasted).
+    let mut totals: Vec<(String, usize, usize, usize)> = Vec::new();
+    let text_settings = crate::text::TextSettings {
+        add_trailing_space: false,
+        ..crate::text::TextSettings::default()
+    };
+    let ctx = crate::text::snippets::SnippetContext::fixed("", "", "");
     let mut missing = Vec::new();
     let mut arabic = Vec::new();
     for r in references(&dir) {
@@ -143,6 +149,8 @@ fn fixture_wer() {
         let seconds = audio.len() as f64 / 16_000.0;
         let t = engine.transcribe(&audio, Some("en")).unwrap();
         let (errors, words) = word_errors(&r.text, &t.text);
+        let cleaned = crate::text::process(&t.text, &text_settings, &ctx);
+        let (clean_errors, _) = word_errors(&r.text, &cleaned);
         if has_arabic_script(&t.text) {
             arabic.push(r.file.clone());
         }
@@ -156,20 +164,25 @@ fn fixture_wer() {
             100.0 * errors as f64 / words.max(1) as f64
         );
         println!("    ref: {}\n    got: {}", r.text, t.text);
-        match totals.iter_mut().find(|(g, _, _)| *g == r.group) {
+        if cleaned != t.text {
+            println!("  paste: {cleaned}");
+        }
+        match totals.iter_mut().find(|(g, _, _, _)| *g == r.group) {
             Some(entry) => {
                 entry.1 += errors;
                 entry.2 += words;
+                entry.3 += clean_errors;
             }
-            None => totals.push((r.group, errors, words)),
+            None => totals.push((r.group, errors, words, clean_errors)),
         }
     }
 
     println!();
-    for (group, errors, words) in &totals {
+    for (group, errors, words, clean) in &totals {
         println!(
-            "{group:<8} WER {:.1}% ({errors} errors / {words} words)",
-            100.0 * *errors as f64 / (*words).max(1) as f64
+            "{group:<8} WER {:.1}% ({errors} errors / {words} words), after clean up {:.1}%",
+            100.0 * *errors as f64 / (*words).max(1) as f64,
+            100.0 * *clean as f64 / (*words).max(1) as f64
         );
     }
     if !missing.is_empty() {
@@ -177,6 +190,60 @@ fn fixture_wer() {
     }
     assert!(!totals.is_empty(), "no clips found in {}", dir.display());
     assert!(arabic.is_empty(), "Arabic script in: {}", arabic.join(", "));
+}
+
+/// Compares ways of getting Roman Urdu out of Whisper on the mixed clips:
+/// language and prompt combinations, printing the raw text for each.
+///   cargo test roman_urdu_strategies -- --ignored --nocapture
+#[test]
+#[ignore = "needs the downloaded Whisper model and recorded clips"]
+fn roman_urdu_strategies() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/audio");
+    let id = std::env::var("MURMUR_MODEL_ID").unwrap_or_else(|_| "whisper-large-v3-turbo-q8".into());
+    let models_dir = crate::paths::data_dir_named(&crate::paths::product_name())
+        .unwrap()
+        .join("models");
+    let spec = Registry::new(models_dir).resolve(&id).unwrap();
+    let clips: Vec<Reference> = references(&dir).into_iter().filter(|r| r.group != "english").collect();
+    let audio: Vec<Vec<f32>> = clips
+        .iter()
+        .map(|r| {
+            let (a, rate) = read_wav(&dir.join(&r.file));
+            resample::to_16k(&a, rate).unwrap()
+        })
+        .collect();
+    let short = "Yaar kal meeting hai, main tumhe bata deta hoon. Acha theek hai, mujhe lagta hai ke hum kal tak kar lenge. Bhai jaldi bhej do, client wait kar raha hai.";
+    let long = "Assalam o alaikum. Aaj ka din bohat busy tha, main abhi ghar pohncha hoon. \
+                Acha theek hai, mujhe lagta hai ke hum kal tak yeh kaam khatam kar lenge. \
+                Tum ne meri email dekhi? Bhai please jaldi bhej do, client wait kar raha hai. \
+                Koi baat nahi, main shaam ko call karta hoon aur sab samjha deta hoon.";
+    let strategies: Vec<(&str, Option<&str>, Option<String>)> = vec![
+        ("en + ROMAN_URDU_PROMPT (shipped)", Some("en"), Some(super::whisper::ROMAN_URDU_PROMPT.into())),
+        ("en + short Roman Urdu prompt", Some("en"), Some(short.into())),
+        ("en + long Roman Urdu prompt", Some("en"), Some(long.into())),
+        ("hi + long Roman Urdu prompt", Some("hi"), Some(long.into())),
+        ("ur + long Roman Urdu prompt", Some("ur"), Some(long.into())),
+    ];
+    for (name, lang, prompt) in strategies {
+        let opts = super::EngineOptions {
+            initial_prompt: prompt,
+            ..super::EngineOptions::default()
+        };
+        let mut engine = WhisperEngine::new();
+        engine.load(&spec.path, &opts).unwrap();
+        println!("\n== {name}");
+        let (mut errors, mut total, mut ms) = (0, 0, 0);
+        for (r, a) in clips.iter().zip(&audio) {
+            let t = engine.transcribe(a, lang).unwrap();
+            let (e, w) = word_errors(&r.text, &t.text);
+            errors += e;
+            total += w;
+            ms += t.inference_ms;
+            let arabic = if has_arabic_script(&t.text) { "  (Arabic script)" } else { "" };
+            println!("  {}  {:>3}%  {}{arabic}", r.file, 100 * e / w.max(1), t.text);
+        }
+        println!("  WER {:.1}%, {} ms per clip", 100.0 * errors as f64 / total.max(1) as f64, ms / clips.len() as u64);
+    }
 }
 
 #[cfg(test)]
