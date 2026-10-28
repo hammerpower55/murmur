@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File scripts/verify_arm64.ps1 -AllowX86Insta
 
 Pushing a `v*` tag runs `.github/workflows/release.yml` on a Windows ARM64 runner, which builds both and attaches them to a GitHub release.
 
-Tests: `pnpm test` and `cargo test` in `src-tauri`. `cargo test fixture_wer -- --ignored --nocapture` measures word error rate on recorded clips in `tests/audio/`.
+Tests: `pnpm test` and `cargo test` in `src-tauri`. `cargo test fixture_wer -- --ignored --nocapture` measures word error rate on clips you record into `tests/audio/` (`references.tsv` lists the sentences; the recordings are not in the repository).
 
 ## Licence
 

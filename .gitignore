@@ -28,3 +28,7 @@ src-tauri/vendor/
 
 # Built by scripts/package_portable.ps1
 dist-release/
+
+# The fixture recordings are the developer's own voice and stay local;
+# references.tsv lists what each clip should say.
+tests/audio/*.wav
