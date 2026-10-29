@@ -67,6 +67,18 @@ export function TranscriptItem({ row, onDelete }: Props) {
         </span>
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{row.finalText}</p>
+      {row.fixedWords.length > 0 && (
+        <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+          <span className="text-accent">Fixed</span>
+          {row.fixedWords.map((f, i) => (
+            <span key={i} className="rounded-full border border-white/8 px-2 py-0.5">
+              <span className="text-zinc-500 line-through decoration-zinc-600">{f.heard}</span>
+              <span className="px-1 text-zinc-600">to</span>
+              <span className="text-zinc-200">{f.meant}</span>
+            </span>
+          ))}
+        </p>
+      )}
     </article>
   );
 }

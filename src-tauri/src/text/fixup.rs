@@ -13,6 +13,8 @@
 //! word or rewrite the text: they missed real errors and invented new ones
 //! ("weather" to "water"), so open ended fixes are not attempted.
 
+use serde::{Deserialize, Serialize};
+
 /// Text before the cursor used as context, in words from the end.
 const BEFORE_WORDS: usize = 80;
 /// Earlier dictation used as context, in words from the end.
@@ -49,6 +51,14 @@ pub fn lead(ctx: &Context) -> String {
     } else {
         format!("{text}\n\n")
     }
+}
+
+/// One misheard stretch and the user's word that replaced it, kept with the
+/// transcript so History can show it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Swap {
+    pub heard: String,
+    pub meant: String,
 }
 
 /// A run of transcript words that sounds like a word the user uses.

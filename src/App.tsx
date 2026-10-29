@@ -8,7 +8,7 @@ import { Onboarding } from "./app/Onboarding";
 import { Settings } from "./app/Settings";
 import { Snippets } from "./app/Snippets";
 import { Mark } from "./components/Mark";
-import { api } from "./lib/api";
+import { api, events } from "./lib/api";
 import { APP_NAME } from "./lib/app";
 import { subscribeDictation, useDictation } from "./store/dictation";
 import { subscribeModels } from "./store/models";
@@ -113,6 +113,7 @@ function App() {
 
   return (
     <div className="flex h-full">
+      <LearnedNote onOpen={() => setScreen("dictionary")} />
       <Nav screen={screen} go={setScreen} />
       <main ref={main} className="min-w-0 flex-1 overflow-y-auto">
         {/* Keyed by page so each visit plays its entrance. */}
@@ -127,6 +128,36 @@ function App() {
         </div>
       </main>
     </div>
+  );
+}
+
+/** A short note in the corner when a word is learned from your corrections. */
+function LearnedNote({ onOpen }: { onOpen: () => void }) {
+  const [words, setWords] = useState<string[]>([]);
+  useEffect(() => {
+    let timer = 0;
+    const off = events.wordsLearned((entries) => {
+      setWords(entries.map((e) => e.written));
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setWords([]), 6000);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      void off.then((f) => f());
+    };
+  }, []);
+  if (words.length === 0) return null;
+  return (
+    <button
+      key={words.join()}
+      onClick={() => {
+        setWords([]);
+        onOpen();
+      }}
+      className="surface fixed right-5 bottom-5 z-50 animate-pop rounded-lg px-4 py-2.5 text-sm text-zinc-200 shadow-lg"
+    >
+      Learned <span className="text-accent">{words.join(", ")}</span>
+    </button>
   );
 }
 

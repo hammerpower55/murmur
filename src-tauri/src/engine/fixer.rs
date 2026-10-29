@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use super::default_threads;
 use super::llm::Llm;
-use crate::text::fixup::{self, Context};
+use crate::text::fixup::{self, Context, Swap};
 
 #[derive(Default)]
 struct Inner {
@@ -104,8 +104,9 @@ impl Fixer {
         }
     }
 
-    /// The transcript with misheard words fixed, or None to keep it as heard.
-    pub fn fix(&self, transcript: &str, ctx: &Context) -> Option<String> {
+    /// The transcript with misheard words fixed and what was swapped, or
+    /// None to keep it as heard.
+    pub fn fix(&self, transcript: &str, ctx: &Context) -> Option<(String, Vec<Swap>)> {
         // Most dictations have nothing that sounds like the user's words:
         // the model is not needed then.
         if fixup::candidates(transcript, ctx).is_empty() {
@@ -125,8 +126,18 @@ impl Fixer {
                     found.len(),
                     notes.join(" | ")
                 );
+                if found.is_empty() {
+                    return None;
+                }
+                let swaps = found
+                    .iter()
+                    .map(|r| Swap {
+                        heard: transcript[r.start..r.end].to_string(),
+                        meant: r.meant.clone(),
+                    })
+                    .collect();
                 let edits: Vec<_> = found.into_iter().map(|r| (r.start, r.end, r.meant)).collect();
-                (!edits.is_empty()).then(|| fixup::apply_at(transcript, &edits))
+                Some((fixup::apply_at(transcript, &edits), swaps))
             }
             Err(err) => {
                 log::error!("fix-up failed: {err:#}");

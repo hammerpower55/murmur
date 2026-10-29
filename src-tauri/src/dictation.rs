@@ -26,7 +26,7 @@ use crate::overlay::events::{Overlay, Phase, Style};
 use crate::settings::{self, Settings};
 use crate::sound::player::{Cue, SoundPlayer};
 use crate::text::dictionary::DictEntry;
-use crate::text::fixup::Context as FixContext;
+use crate::text::fixup::{Context as FixContext, Swap};
 use crate::text::learn;
 use crate::text::smart::AppKind;
 use crate::text::store::TextStore;
@@ -246,6 +246,7 @@ impl field::Watcher for LearnWatcher {
                     log::info!("learned \"{}\" for \"{}\"", e.written, e.spoken);
                 }
                 let _ = self.app.emit("dictionary-changed", ());
+                let _ = self.app.emit("words-learned", &added);
             }
             Ok(_) => {}
             Err(err) => log::warn!("could not save learned words: {err:#}"),
@@ -471,10 +472,10 @@ impl Controller {
         }
 
         let user = self.text.get();
-        let heard = if prefs.fix_misheard_words {
+        let (heard, swaps) = if prefs.fix_misheard_words {
             self.fix_up(&raw, &target, &user.dictionary)
         } else {
-            raw.clone()
+            (raw.clone(), Vec::new())
         };
         let text_settings = TextSettings {
             remove_fillers: prefs.remove_fillers,
@@ -518,6 +519,7 @@ impl Controller {
             &target,
             language,
             prefs.keep_audio_clips,
+            swaps,
         );
         pasted?;
         self.recent = Some((target.exe.clone(), text.trim().to_string(), Instant::now()));
@@ -553,12 +555,13 @@ impl Controller {
     }
 
     /// The transcript with misheard words fixed, using what is already in
-    /// the field, earlier dictation and the dictionary as context. As heard
-    /// when the fix-up model is missing, still loading or finds nothing.
-    fn fix_up(&mut self, raw: &str, target: &focus::FocusedApp, dictionary: &[DictEntry]) -> String {
+    /// the field, earlier dictation and the dictionary as context, and the
+    /// words swapped. As heard when the fix-up model is missing, still
+    /// loading or finds nothing.
+    fn fix_up(&mut self, raw: &str, target: &focus::FocusedApp, dictionary: &[DictEntry]) -> (String, Vec<Swap>) {
         let before = self.before_cursor.take();
         if !self.fixer.is_loaded() {
-            return raw.to_string();
+            return (raw.to_string(), Vec::new());
         }
         let before = before
             .and_then(|rx| rx.recv_timeout(CONTEXT_WAIT).ok().flatten())
@@ -577,7 +580,9 @@ impl Controller {
             earlier,
             vocabulary: dictionary.iter().map(|e| e.written.clone()).collect(),
         };
-        self.fixer.fix(raw, &ctx).unwrap_or_else(|| raw.to_string())
+        self.fixer
+            .fix(raw, &ctx)
+            .unwrap_or_else(|| (raw.to_string(), Vec::new()))
     }
 
     /// Writes the transcript row (spec 5.2 step 8), tells the UI, and saves
@@ -594,6 +599,7 @@ impl Controller {
         target: &focus::FocusedApp,
         language: Option<String>,
         keep_audio: bool,
+        fixed_words: Vec<Swap>,
     ) {
         let row = NewTranscript {
             created_at: chrono::Local::now().naive_local(),
@@ -605,6 +611,7 @@ impl Controller {
             language,
             app_name: (!target.exe.is_empty()).then(|| target.exe.clone()),
             app_title: (!target.title.is_empty()).then(|| target.title.clone()),
+            fixed_words,
         };
         match self.db.insert_transcript(&row) {
             Ok(id) => {

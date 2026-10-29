@@ -6,6 +6,7 @@ use rusqlite::{params, OptionalExtension, Row, Transaction};
 use serde::Serialize;
 
 use super::Db;
+use crate::text::fixup::Swap;
 use crate::text::stopwords::{countable_words, word_count};
 
 /// created_at format: ISO 8601 local time, sortable as text.
@@ -21,6 +22,8 @@ pub struct NewTranscript {
     pub language: Option<String>,
     pub app_name: Option<String>,
     pub app_title: Option<String>,
+    /// Misheard words the word fixer replaced.
+    pub fixed_words: Vec<Swap>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -38,10 +41,11 @@ pub struct TranscriptRow {
     pub app_name: Option<String>,
     pub app_title: Option<String>,
     pub wpm: f64,
+    pub fixed_words: Vec<Swap>,
 }
 
 const COLUMNS: &str = "id, created_at, raw_text, final_text, word_count, audio_ms, inference_ms, \
-                       model_id, language, app_name, app_title, wpm";
+                       model_id, language, app_name, app_title, wpm, fixed_words";
 
 fn row(r: &Row) -> rusqlite::Result<TranscriptRow> {
     Ok(TranscriptRow {
@@ -57,6 +61,8 @@ fn row(r: &Row) -> rusqlite::Result<TranscriptRow> {
         app_name: r.get(9)?,
         app_title: r.get(10)?,
         wpm: r.get(11)?,
+        // A broken list only loses the marks, never the transcript.
+        fixed_words: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
     })
 }
 
@@ -96,8 +102,8 @@ impl Db {
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO transcripts (created_at, raw_text, final_text, word_count, audio_ms,
-                 inference_ms, model_id, language, app_name, app_title, wpm)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 inference_ms, model_id, language, app_name, app_title, wpm, fixed_words)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 t.created_at.format(TIME_FORMAT).to_string(),
                 t.raw_text,
@@ -110,6 +116,7 @@ impl Db {
                 t.app_name,
                 t.app_title,
                 words_per_minute(words, t.audio_ms),
+                serde_json::to_string(&t.fixed_words)?,
             ],
         )?;
         let id = tx.last_insert_rowid();
@@ -213,6 +220,7 @@ pub mod tests {
             language: Some("en".into()),
             app_name: Some("Notepad.exe".into()),
             app_title: Some("notes.txt - Notepad".into()),
+            fixed_words: Vec::new(),
         }
     }
 
@@ -235,6 +243,20 @@ pub mod tests {
         assert_eq!(r.wpm, 100.0);
         assert_eq!(r.raw_text, "um Send the quarterly report today.");
         assert_eq!(r.app_name.as_deref(), Some("Notepad.exe"));
+        assert!(r.fixed_words.is_empty());
+    }
+
+    #[test]
+    fn keeps_the_words_the_fixer_swapped() {
+        let db = Db::in_memory();
+        let mut t = new("Send it to Maaz by Friday.", at(2026, 10, 28, 9), 2000);
+        t.fixed_words = vec![Swap {
+            heard: "mars".into(),
+            meant: "Maaz".into(),
+        }];
+        db.insert_transcript(&t).unwrap();
+        let rows = db.list_transcripts("", 10, 0).unwrap();
+        assert_eq!(rows[0].fixed_words, t.fixed_words);
     }
 
     #[test]

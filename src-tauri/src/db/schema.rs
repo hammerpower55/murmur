@@ -21,6 +21,8 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_transcripts_created ON transcripts(created_at);
     CREATE TABLE word_counts (word TEXT PRIMARY KEY, count INTEGER NOT NULL);",
+    // 2: words the word fixer swapped, as a JSON list of {heard, meant}.
+    "ALTER TABLE transcripts ADD COLUMN fixed_words TEXT NOT NULL DEFAULT '[]';",
 ];
 
 pub fn migrate(conn: &mut Connection) -> Result<()> {

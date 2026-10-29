@@ -51,6 +51,8 @@ export interface TranscriptRow {
   appName: string | null;
   appTitle: string | null;
   wpm: number;
+  /** Misheard words the word fixer replaced with yours. */
+  fixedWords: { heard: string; meant: string }[];
 }
 
 export interface HomeSummary {
@@ -184,6 +186,9 @@ export const events = {
     listen<{ rms: number; peak: number }>("mic-level", (e) => cb(e.payload.rms)),
   modelsChanged: (cb: () => void): Promise<UnlistenFn> => listen("models-changed", () => cb()),
   dictionaryChanged: (cb: () => void): Promise<UnlistenFn> => listen("dictionary-changed", () => cb()),
+  /** Words added to the dictionary from your corrections. */
+  wordsLearned: (cb: (entries: DictEntry[]) => void): Promise<UnlistenFn> =>
+    listen<DictEntry[]>("words-learned", (e) => cb(e.payload)),
   modelDownload: (cb: (p: Progress & { id: string }) => void): Promise<UnlistenFn> =>
     listen<Progress & { id: string }>("model-download", (e) => cb(e.payload)),
   modelError: (cb: (e: { id: string; message: string }) => void): Promise<UnlistenFn> =>
