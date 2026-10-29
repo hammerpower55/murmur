@@ -12,6 +12,14 @@ pub enum Family {
     Parakeet,
     Moonshine,
     Sensevoice,
+    /// Not a speech model: the language model that fixes misheard words.
+    Fixup,
+}
+
+impl Family {
+    pub fn is_speech(self) -> bool {
+        self != Family::Fixup
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,7 +147,8 @@ mod tests {
 
     #[test]
     fn ratings_are_one_to_five() {
-        for m in catalog() {
+        // The word fixer has no speech ratings.
+        for m in catalog().into_iter().filter(|m| m.family.is_speech()) {
             assert!((1..=5).contains(&m.accuracy), "{}", m.id);
             assert!((1..=5).contains(&m.speed), "{}", m.id);
         }

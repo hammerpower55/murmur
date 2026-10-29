@@ -22,6 +22,8 @@ interface Props {
   empty: string;
   /** Shows a search box once the list is this long. */
   searchFrom?: number;
+  /** A small label shown after each pair, by index. */
+  tags?: (string | undefined)[];
 }
 
 function Editor({
@@ -88,7 +90,7 @@ function Editor({
   );
 }
 
-export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12 }: Props) {
+export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12, tags }: Props) {
   /** Index being edited, -1 for a new entry, null when not editing. */
   const [editing, setEditing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +170,11 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
                 {p[0]}
               </span>
               <span className="line-clamp-2 min-w-0 flex-1 text-sm whitespace-pre-wrap text-zinc-400">{p[1]}</span>
+              {tags?.[i] && (
+                <span className="shrink-0 rounded-full border border-accent/25 px-2 py-0.5 text-[11px] text-accent">
+                  {tags[i]}
+                </span>
+              )}
               <span className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <button
                   className="rounded px-2 py-0.5 text-xs text-zinc-300 hover:bg-white/8"

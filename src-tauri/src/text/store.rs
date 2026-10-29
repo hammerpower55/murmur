@@ -183,6 +183,17 @@ impl TextStore {
         self.update(|d| d.dictionary = entries)
     }
 
+    /// Adds entries learned from the user's corrections. Returns the ones
+    /// that were new.
+    pub fn learn(&self, learned: Vec<DictEntry>) -> Result<Vec<DictEntry>> {
+        let mut dictionary = self.get().dictionary;
+        let added = super::learn::merge(&mut dictionary, learned);
+        if !added.is_empty() {
+            self.set_dictionary(dictionary)?;
+        }
+        Ok(added)
+    }
+
     pub fn set_snippets(&self, snippets: Vec<Snippet>) -> Result<()> {
         validate_snippets(&snippets)?;
         write(&self.dir.join(SNIPPETS), &snippets)?;
@@ -230,6 +241,7 @@ mod tests {
         DictEntry {
             spoken: s.into(),
             written: w.into(),
+            learned: false,
         }
     }
 

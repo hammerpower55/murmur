@@ -13,6 +13,7 @@ export function Models() {
     const q = query.trim().toLowerCase();
     return view.models.filter(
       (m) =>
+        m.family !== "fixup" &&
         supportsLanguage(m.languages, language) &&
         (q === "" ||
           m.name.toLowerCase().includes(q) ||
@@ -23,6 +24,21 @@ export function Models() {
 
   if (!view) return null;
   const active = view.models.find((m) => m.id === view.active);
+  const fixers = view.models.filter((m) => m.family === "fixup");
+  const card = (m: (typeof view.models)[number]) => (
+    <ModelCard
+      key={m.id}
+      model={m}
+      active={view.active === m.id}
+      loading={view.loading === m.id}
+      progress={view.downloads[m.id]}
+      error={errors[m.id]}
+      onDownload={() => void download(m.id)}
+      onCancel={() => void cancel(m.id)}
+      onUse={() => void use(m.id)}
+      onDelete={() => void remove(m.id)}
+    />
+  );
   const romanUrduHint = view.romanUrdu && active !== undefined && active.family !== "whisper";
 
   return (
@@ -60,21 +76,15 @@ export function Models() {
         {shown.length === 0 && (
           <p className="py-10 text-center text-sm text-zinc-500">Clear the search to see every model.</p>
         )}
-        {shown.map((m) => (
-          <ModelCard
-            key={m.id}
-            model={m}
-            active={view.active === m.id}
-            loading={view.loading === m.id}
-            progress={view.downloads[m.id]}
-            error={errors[m.id]}
-            onDownload={() => void download(m.id)}
-            onCancel={() => void cancel(m.id)}
-            onUse={() => void use(m.id)}
-            onDelete={() => void remove(m.id)}
-          />
-        ))}
+        {shown.map(card)}
       </div>
+
+      {fixers.length > 0 && (
+        <>
+          <h2 className="mt-10 text-sm font-semibold text-zinc-100">Fix misheard words</h2>
+          <div className="stagger mt-3 flex flex-col gap-3">{fixers.map(card)}</div>
+        </>
+      )}
     </section>
   );
 }

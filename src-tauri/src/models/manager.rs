@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter};
 use super::catalog::{self, Family};
 use super::download::{self, is_cancelled};
 use super::registry::{ModelInfo, Registry};
+use crate::engine::fixer::Fixer;
 use crate::engine::host::EngineHost;
 use crate::engine::whisper::ROMAN_URDU_PROMPT;
 use crate::engine::EngineOptions;
@@ -58,6 +59,7 @@ pub struct ModelManager {
     app: AppHandle,
     registry: Registry,
     host: Arc<EngineHost>,
+    fixer: Arc<Fixer>,
     downloads: Mutex<HashMap<String, Download>>,
 }
 
@@ -74,11 +76,19 @@ pub fn options_for(family: Family, id: &str, roman_urdu: bool) -> EngineOptions 
 }
 
 impl ModelManager {
-    pub fn new(app: AppHandle, models_dir: PathBuf, host: Arc<EngineHost>) -> Arc<Self> {
+    pub fn new(
+        app: AppHandle,
+        models_dir: PathBuf,
+        host: Arc<EngineHost>,
+        fixer: Arc<Fixer>,
+    ) -> Arc<Self> {
+        let registry = Registry::new(models_dir);
+        fixer.set_model(registry.fixup_dir());
         Arc::new(Self {
             app,
-            registry: Registry::new(models_dir),
+            registry,
             host,
+            fixer,
             downloads: Mutex::new(HashMap::new()),
         })
     }
@@ -135,6 +145,9 @@ impl ModelManager {
 
     pub fn activate(self: &Arc<Self>, id: &str) -> Result<()> {
         let spec = self.registry.resolve(id)?;
+        if !spec.family.is_speech() {
+            bail!("This model fixes words and cannot transcribe on its own.");
+        }
         settings::set_active_model(&self.app, Some(id))?;
         let me = Arc::clone(self);
         let model_id = id.to_string();
@@ -225,6 +238,10 @@ impl ModelManager {
                     d.remove(&id);
                 }
                 match result {
+                    Ok(()) if !model.family.is_speech() => {
+                        log::info!("downloaded {id}");
+                        me.fixer.set_model(me.registry.fixup_dir());
+                    }
                     Ok(()) => {
                         log::info!("downloaded {id}");
                         // First model on this machine: start using it.
@@ -261,7 +278,11 @@ impl ModelManager {
         if self.downloads.lock().is_ok_and(|d| d.contains_key(id)) {
             bail!("Cancel the download before deleting this model.");
         }
+        if catalog::find(id).is_some_and(|m| !m.family.is_speech()) {
+            self.fixer.set_model(None);
+        }
         let freed = self.registry.delete(id)?;
+        self.fixer.set_model(self.registry.fixup_dir());
         log::info!("deleted {id}, freed {} MB", freed / 1_000_000);
         self.changed();
         Ok(freed)

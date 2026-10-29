@@ -10,6 +10,9 @@ use super::{csv, match_phrase, phrase_words, tokenize, Token};
 pub struct DictEntry {
     pub spoken: String,
     pub written: String,
+    /// Added by Murmur from a correction the user made (text/learn.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub learned: bool,
 }
 
 #[cfg(test)]
@@ -18,6 +21,7 @@ impl DictEntry {
         Self {
             spoken: spoken.into(),
             written: written.into(),
+            learned: false,
         }
     }
 }
@@ -88,6 +92,7 @@ pub fn import_csv(text: &str) -> Result<Vec<DictEntry>> {
         entries.push(DictEntry {
             spoken: row[0].trim().to_string(),
             written: row[1].trim().to_string(),
+            learned: false,
         });
     }
     Ok(entries)

@@ -185,6 +185,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
 
   const active = view?.models.find((m) => m.id === view.active);
   const whisper = active?.family === "whisper";
+  const fixerInstalled = view?.models.some((m) => m.family === "fixup" && m.installed) ?? false;
   const pinnedToEnglish = whisper && s.romanUrdu;
   const languages = [...languagesFor(active?.languages ?? ["*"])];
   if (s.language !== "auto" && !languages.some(([c]) => c === s.language)) {
@@ -358,6 +359,25 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
       <Section title="Text">
         <Row label="Smart formatting">
           <Toggle label="Smart formatting" checked={s.smartFormatting} onChange={(v) => set({ smartFormatting: v })} />
+        </Row>
+        <Row label="Fix misheard words">
+          {s.fixMisheardWords && !fixerInstalled && (
+            <button className={buttonClass} onClick={onOpenModels}>
+              Download the word fixer
+            </button>
+          )}
+          <Toggle
+            label="Fix misheard words"
+            checked={s.fixMisheardWords}
+            onChange={(v) => set({ fixMisheardWords: v })}
+          />
+        </Row>
+        <Row label="Learn words from your corrections">
+          <Toggle
+            label="Learn words from your corrections"
+            checked={s.learnWords}
+            onChange={(v) => set({ learnWords: v })}
+          />
         </Row>
         <Row label="Remove filler words">
           <Toggle label="Remove filler words" checked={s.removeFillers} onChange={(v) => set({ removeFillers: v })} />

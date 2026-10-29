@@ -94,8 +94,20 @@ impl Registry {
         out
     }
 
+    /// Installed speech models.
     pub fn installed(&self) -> Vec<ModelInfo> {
-        self.list().into_iter().filter(|m| m.installed).collect()
+        self.list()
+            .into_iter()
+            .filter(|m| m.installed && m.family.is_speech())
+            .collect()
+    }
+
+    /// The installed fix-up model's folder, if there is one.
+    pub fn fixup_dir(&self) -> Option<PathBuf> {
+        catalog::catalog()
+            .into_iter()
+            .find(|m| m.family == Family::Fixup && self.is_installed(m))
+            .map(|m| self.model_dir(&m.id))
     }
 
     fn custom_models(&self) -> Vec<ModelInfo> {
@@ -152,7 +164,7 @@ impl Registry {
         let path = match model.family {
             Family::Whisper => dir.join(&model.files[0].name),
             // ONNX engines take the folder and find their files in it.
-            Family::Parakeet | Family::Moonshine | Family::Sensevoice => dir,
+            Family::Parakeet | Family::Moonshine | Family::Sensevoice | Family::Fixup => dir,
         };
         Ok(LoadSpec {
             id: id.into(),

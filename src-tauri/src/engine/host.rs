@@ -224,6 +224,7 @@ fn load(spec: &LoadSpec, opts: &EngineOptions) -> Result<Arc<dyn SpeechEngine>> 
         Family::Parakeet => Box::new(ParakeetEngine::new()),
         Family::Moonshine => Box::new(MoonshineEngine::new()),
         Family::Sensevoice => Box::new(SenseVoiceEngine::new()),
+        Family::Fixup => anyhow::bail!("{} is not a speech model", spec.id),
     };
     engine.load(&spec.path, opts)?;
     if !engine.is_loaded() {

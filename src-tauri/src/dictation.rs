@@ -14,16 +14,20 @@ use tauri::{AppHandle, Emitter};
 use crate::audio::capture::{InputConfig, Recorder, Recording, Tap};
 use crate::db::transcripts::NewTranscript;
 use crate::db::Db;
+use crate::engine::fixer::Fixer;
 use crate::engine::host::EngineHost;
 use crate::engine::{has_arabic_script, Transcript};
 use crate::hotkey::keys;
 use crate::hotkey::listener::{self, Combo, HotkeyControl, HotkeyEvent};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
-use crate::inject::{focus, icons, paste};
+use crate::inject::{field, focus, icons, paste};
 use crate::models::catalog::Family;
 use crate::overlay::events::{Overlay, Phase, Style};
 use crate::settings::{self, Settings};
 use crate::sound::player::{Cue, SoundPlayer};
+use crate::text::dictionary::DictEntry;
+use crate::text::fixup::Context as FixContext;
+use crate::text::learn;
 use crate::text::smart::AppKind;
 use crate::text::store::TextStore;
 use crate::text::{self, snippets::SnippetContext, TextSettings};
@@ -32,6 +36,13 @@ use crate::text::{self, snippets::SnippetContext, TextSettings};
 const MIN_AUDIO_MS: u64 = 300;
 /// Capture starts this long after the start cue begins playing (spec 6.5).
 const START_CUE_LEAD: Duration = Duration::from_millis(60);
+/// Longest wait for the text before the cursor once transcription is done.
+/// It is read while the user speaks, so it is almost always there already.
+const CONTEXT_WAIT: Duration = Duration::from_millis(150);
+/// Earlier dictation into the same app counts as context for this long.
+const EARLIER_FOR: Duration = Duration::from_secs(10 * 60);
+/// How long a field is watched for corrections after a paste.
+const WATCH_FOR: Duration = Duration::from_secs(60);
 
 /// Where things live on disk.
 pub struct Dirs {
@@ -105,9 +116,11 @@ impl Dictation {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     app: AppHandle,
     engine: Arc<EngineHost>,
+    fixer: Arc<Fixer>,
     db: Arc<Db>,
     dirs: Dirs,
     shared: settings::Shared,
@@ -161,6 +174,10 @@ pub fn spawn(
                 event_at: Instant::now(),
                 capture_started: None,
                 engine,
+                fixer,
+                before_cursor: None,
+                watching: Arc::new(AtomicBool::new(false)),
+                recent: None,
                 db,
                 dirs,
                 ignore_before: None,
@@ -202,6 +219,40 @@ pub fn clip_path(clips: &std::path::Path, id: i64) -> PathBuf {
     clips.join(format!("{id}.wav"))
 }
 
+/// Watches a paste for corrections and adds what the user fixed to the
+/// dictionary when the watch ends.
+struct LearnWatcher {
+    pasted: String,
+    /// Corrections in the latest read that still had the pasted text.
+    found: Option<Vec<DictEntry>>,
+    text: Arc<TextStore>,
+    app: AppHandle,
+}
+
+impl field::Watcher for LearnWatcher {
+    fn snapshot(&mut self, field: &str) {
+        if let Some(found) = learn::corrections(&self.pasted, field) {
+            self.found = Some(found);
+        }
+    }
+
+    fn end(self: Box<Self>) {
+        let Some(found) = self.found.filter(|f| !f.is_empty()) else {
+            return;
+        };
+        match self.text.learn(found) {
+            Ok(added) if !added.is_empty() => {
+                for e in &added {
+                    log::info!("learned \"{}\" for \"{}\"", e.written, e.spoken);
+                }
+                let _ = self.app.emit("dictionary-changed", ());
+            }
+            Ok(_) => {}
+            Err(err) => log::warn!("could not save learned words: {err:#}"),
+        }
+    }
+}
+
 struct Controller {
     app: AppHandle,
     machine: Machine,
@@ -217,6 +268,14 @@ struct Controller {
     capture_started: Option<Instant>,
     /// The active model; swapped from the Models page without a restart.
     engine: Arc<EngineHost>,
+    /// The fix-up model, used when it is downloaded and switched on.
+    fixer: Arc<Fixer>,
+    /// The text before the cursor, being read while the user speaks.
+    before_cursor: Option<Receiver<Option<String>>>,
+    /// Set to stop watching the last paste for corrections.
+    watching: Arc<AtomicBool>,
+    /// The last dictation: app, final text and when.
+    recent: Option<(String, String, Instant)>,
     db: Arc<Db>,
     dirs: Dirs,
     /// Key events from before this instant happened while transcribing and
@@ -283,8 +342,11 @@ impl Controller {
                     self.event_at = Instant::now();
                     let effect = self.machine.tick(self.event_at);
                     self.drive(effect);
-                    if idle.is_some_and(|t| t <= Instant::now()) && self.engine.park() {
-                        let _ = self.app.emit("models-changed", ());
+                    if idle.is_some_and(|t| t <= Instant::now()) {
+                        self.fixer.park();
+                        if self.engine.park() {
+                            let _ = self.app.emit("models-changed", ());
+                        }
                     }
                 }
             }
@@ -310,6 +372,12 @@ impl Controller {
                 // An unloaded model starts loading while the user speaks.
                 self.engine.wake();
                 self.last_used = Instant::now();
+                self.watching.store(true, Ordering::SeqCst);
+                self.before_cursor = None;
+                if self.settings().fix_misheard_words && self.fixer.has_model() {
+                    self.fixer.wake();
+                    self.before_cursor = Some(field::read_before_cursor());
+                }
                 // Pill first so it shows well inside 100 ms, then the cue,
                 // then the microphone once the cue is under way.
                 self.overlay.recording();
@@ -403,6 +471,11 @@ impl Controller {
         }
 
         let user = self.text.get();
+        let heard = if prefs.fix_misheard_words {
+            self.fix_up(&raw, &target, &user.dictionary)
+        } else {
+            raw.clone()
+        };
         let text_settings = TextSettings {
             remove_fillers: prefs.remove_fillers,
             voice_punctuation: prefs.voice_punctuation,
@@ -426,7 +499,7 @@ impl Controller {
             String::new()
         };
         let ctx = SnippetContext::now(clipboard);
-        let text = text::process(&raw, &text_settings, &ctx);
+        let text = text::process(&heard, &text_settings, &ctx);
         if text.trim().is_empty() {
             log::info!("nothing left after clean up");
             return Ok(false);
@@ -447,6 +520,20 @@ impl Controller {
             prefs.keep_audio_clips,
         );
         pasted?;
+        self.recent = Some((target.exe.clone(), text.trim().to_string(), Instant::now()));
+        if prefs.learn_words && !target.is_terminal() {
+            self.watching = Arc::new(AtomicBool::new(false));
+            field::watch(
+                Box::new(LearnWatcher {
+                    pasted: text.trim().to_string(),
+                    found: None,
+                    text: self.text.clone(),
+                    app: self.app.clone(),
+                }),
+                self.watching.clone(),
+                WATCH_FOR,
+            );
+        }
         log::info!(
             "pasted {} chars into {} in {} ms{}",
             text.chars().count(),
@@ -463,6 +550,34 @@ impl Controller {
             }
         );
         Ok(true)
+    }
+
+    /// The transcript with misheard words fixed, using what is already in
+    /// the field, earlier dictation and the dictionary as context. As heard
+    /// when the fix-up model is missing, still loading or finds nothing.
+    fn fix_up(&mut self, raw: &str, target: &focus::FocusedApp, dictionary: &[DictEntry]) -> String {
+        let before = self.before_cursor.take();
+        if !self.fixer.is_loaded() {
+            return raw.to_string();
+        }
+        let before = before
+            .and_then(|rx| rx.recv_timeout(CONTEXT_WAIT).ok().flatten())
+            .unwrap_or_default();
+        // The field usually holds the earlier dictation already.
+        let earlier = match &self.recent {
+            Some((exe, text, at))
+                if before.trim().is_empty() && *exe == target.exe && at.elapsed() < EARLIER_FOR =>
+            {
+                text.clone()
+            }
+            _ => String::new(),
+        };
+        let ctx = FixContext {
+            before,
+            earlier,
+            vocabulary: dictionary.iter().map(|e| e.written.clone()).collect(),
+        };
+        self.fixer.fix(raw, &ctx).unwrap_or_else(|| raw.to_string())
     }
 
     /// Writes the transcript row (spec 5.2 step 8), tells the UI, and saves

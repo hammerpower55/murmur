@@ -32,6 +32,33 @@ pub fn countable_words(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Number of words in `text` that are Roman Urdu and not also English.
+pub fn roman_urdu_words(text: &str) -> usize {
+    static URDU: OnceLock<HashSet<String>> = OnceLock::new();
+    let urdu = URDU.get_or_init(|| {
+        let json: serde_json::Value = serde_json::from_str(LISTS).unwrap_or_default();
+        let list = |key: &str| -> HashSet<String> {
+            json.get(key)
+                .and_then(|v| v.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|w| w.as_str().map(str::to_lowercase))
+                .collect()
+        };
+        let english = list("english");
+        list("urdu").into_iter().filter(|w| !english.contains(w)).collect()
+    });
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| urdu.contains(*w))
+        .count()
+}
+
+/// True for a word too common to mean anything on its own.
+pub fn is_stopword(word: &str) -> bool {
+    stopwords().contains(&word.to_lowercase())
+}
+
 /// Words in the final text, as stored in transcripts.word_count.
 pub fn word_count(text: &str) -> usize {
     text.split_whitespace()

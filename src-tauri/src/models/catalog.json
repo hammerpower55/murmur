@@ -1,5 +1,5 @@
 {
-  "_comment": "Static model catalogue (spec 6.2). URLs are pinned to a repository commit so the hashes stay valid. Ratings are relative to each other on a Snapdragon X class CPU. Moonshine Base uses the int8 ONNX build (63 MB of weights, the float build is 247 MB). The default is Whisper turbo Q8_0, not the spec's Q5_0: ggml repacks Q8_0 weights at load for the Snapdragon's int8 matrix instructions (i8mm) while Q5_0 has no repacked kernel, so on the X Plus a 5 s clip takes about 4.5 s instead of 10 to 14 s with the same accuracy.",
+  "_comment": "Static model catalogue (spec 6.2). URLs are pinned to a repository commit so the hashes stay valid. Ratings are relative to each other on a Snapdragon X class CPU. Moonshine Base uses the int8 ONNX build (63 MB of weights, the float build is 247 MB). The default is Whisper turbo Q8_0, not the spec's Q5_0: ggml repacks Q8_0 weights at load for the Snapdragon's int8 matrix instructions (i8mm) while Q5_0 has no repacked kernel, so on the X Plus a 5 s clip takes about 4.5 s instead of 10 to 14 s with the same accuracy. The fixup family is a small language model that swaps a misheard word for one of the user's own words (dictionary or text on screen) when that fits the context much better; it never transcribes.",
   "models": [
     {
       "id": "whisper-large-v3-turbo-q8",
@@ -535,6 +535,32 @@
           "url": "https://huggingface.co/moonshine-ai/moonshine/resolve/48b4e427b587bcf67797a5be706d6ddc4a298149/onnx/merged/base/float/tokenizer.json",
           "size": 3761751,
           "git_sha1": "b581d8652695f54fcc3c2d342d96407a1d27fc0f"
+        }
+      ]
+    },
+    {
+      "id": "qwen3-1.7b-int4",
+      "name": "Qwen3 1.7B",
+      "family": "fixup",
+      "accuracy": 0,
+      "speed": 0,
+      "languages": ["*"],
+      "languages_label": "Uses your dictionary and the text on screen",
+      "ram_mb": 2100,
+      "files": [
+        {
+          "name": "model.onnx",
+          "url": "https://huggingface.co/onnx-community/Qwen3-1.7B-ONNX/resolve/3231b522c6e703b2f9b3cd8ea27426a1289a02f2/onnxruntime/cpu_and_mobile/cpu-int4-kld-block-128/model.onnx",
+          "size": 1408943689,
+          "sha256": "9fddc5a0a7f9c51132c376db8fe44774b17a8e42d721c4d289ade16af87da0bd",
+          "mirrors": ["https://www.modelscope.cn/models/onnx-community/Qwen3-1.7B-ONNX/resolve/master/onnxruntime/cpu_and_mobile/cpu-int4-kld-block-128/model.onnx"]
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/onnx-community/Qwen3-1.7B-ONNX/resolve/3231b522c6e703b2f9b3cd8ea27426a1289a02f2/onnxruntime/cpu_and_mobile/cpu-int4-kld-block-128/tokenizer.json",
+          "size": 11422648,
+          "sha256": "979d160e081df25a1bf7f4e2e8f4c441b5dfdc9a8e84aec9f32e80445e1b59b8",
+          "mirrors": ["https://www.modelscope.cn/models/onnx-community/Qwen3-1.7B-ONNX/resolve/master/onnxruntime/cpu_and_mobile/cpu-int4-kld-block-128/tokenizer.json"]
         }
       ]
     }

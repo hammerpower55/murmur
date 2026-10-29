@@ -6,6 +6,7 @@ const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
   parakeet: "Parakeet",
   moonshine: "Moonshine",
   sensevoice: "SenseVoice",
+  fixup: "Word fixer",
 };
 
 function Dots({ label, value }: { label: string; value: number }) {
@@ -55,6 +56,11 @@ export function ModelCard(p: Props) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-zinc-100">{model.name}</h3>
+            {model.family === "fixup" && model.installed && (
+              <span className="animate-pop rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-ink">
+                On
+              </span>
+            )}
             {p.active && (
               <span className="animate-pop rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-ink">
                 Active
@@ -80,7 +86,7 @@ export function ModelCard(p: Props) {
             </button>
           ) : (
             <>
-              {!p.active && (
+              {!p.active && model.family !== "fixup" && (
                 <button className={primary} onClick={p.onUse} disabled={p.loading}>
                   Use
                 </button>

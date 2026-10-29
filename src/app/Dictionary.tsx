@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { events, type DictEntry } from "../lib/api";
 import { buttonClass, Tabs } from "../components/controls";
 import { CsvButtons } from "../components/CsvButtons";
 import { PairList, type Pair } from "../components/PairList";
@@ -14,6 +15,14 @@ export function splitVariants(text: string): string[] {
     .filter((v) => v !== "");
 }
 
+/** Entries for the pairs, still marked learned if unchanged. */
+export function keepLearned(pairs: Pair[], before: DictEntry[]): DictEntry[] {
+  return pairs.map(([spoken, written]) => {
+    const learned = before.some((e) => e.learned && e.spoken === spoken && e.written === written);
+    return learned ? { spoken, written, learned } : { spoken, written };
+  });
+}
+
 export function Dictionary() {
   const { data, load, setDictionary, setRomanUrdu, resetRomanUrdu } = useText();
   const [tab, setTab] = useState<Tab>("dictionary");
@@ -21,6 +30,9 @@ export function Dictionary() {
 
   useEffect(() => {
     void load();
+    // Words learned from your corrections arrive while the page is open.
+    const off = events.dictionaryChanged(() => void load());
+    return () => void off.then((f) => f());
   }, [load]);
 
   if (!data) return null;
@@ -71,11 +83,12 @@ export function Dictionary() {
         {tab === "dictionary" ? (
           <PairList
             pairs={data.dictionary.map((e): Pair => [e.spoken, e.written])}
+            tags={data.dictionary.map((e) => (e.learned ? "Learned" : undefined))}
             fields={[
               { label: "Spoken", placeholder: "What you say, like clari tree" },
               { label: "Written", placeholder: "How to write it, like ClariTree" },
             ]}
-            save={(pairs) => setDictionary(pairs.map(([spoken, written]) => ({ spoken, written })))}
+            save={(pairs) => setDictionary(keepLearned(pairs, data.dictionary))}
             addLabel="Add word"
             empty="Add a word to teach Murmur how you spell it."
           />

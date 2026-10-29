@@ -3,7 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type Family = "whisper" | "parakeet" | "moonshine" | "sensevoice";
+/** "fixup" is not a speech model: it fixes misheard words. */
+export type Family = "whisper" | "parakeet" | "moonshine" | "sensevoice" | "fixup";
 
 export interface ModelInfo {
   id: string;
@@ -105,6 +106,8 @@ export interface Settings {
   addTrailingSpace: boolean;
   voicePunctuation: boolean;
   smartFormatting: boolean;
+  fixMisheardWords: boolean;
+  learnWords: boolean;
   typingWpm: number;
   keepAudioClips: boolean;
 }
@@ -112,6 +115,8 @@ export interface Settings {
 export interface DictEntry {
   spoken: string;
   written: string;
+  /** Added by Murmur from a correction you made. */
+  learned?: boolean;
 }
 
 export interface Snippet {
@@ -178,6 +183,7 @@ export const events = {
   micLevel: (cb: (rms: number) => void): Promise<UnlistenFn> =>
     listen<{ rms: number; peak: number }>("mic-level", (e) => cb(e.payload.rms)),
   modelsChanged: (cb: () => void): Promise<UnlistenFn> => listen("models-changed", () => cb()),
+  dictionaryChanged: (cb: () => void): Promise<UnlistenFn> => listen("dictionary-changed", () => cb()),
   modelDownload: (cb: (p: Progress & { id: string }) => void): Promise<UnlistenFn> =>
     listen<Progress & { id: string }>("model-download", (e) => cb(e.payload)),
   modelError: (cb: (e: { id: string; message: string }) => void): Promise<UnlistenFn> =>

@@ -22,6 +22,7 @@ use tauri_plugin_log::{Target, TargetKind};
 
 use db::Db;
 use engine::host::EngineHost;
+use engine::fixer::Fixer;
 use models::manager::ModelManager;
 use text::store::TextStore;
 
@@ -140,8 +141,13 @@ pub fn run() {
 
             engine::onnx::set_runtime_path(onnxruntime_path(&handle));
             let host = EngineHost::new();
-            let models =
-                ModelManager::new(handle.clone(), paths::models_dir(&handle)?, host.clone());
+            let fixer = Fixer::new();
+            let models = ModelManager::new(
+                handle.clone(),
+                paths::models_dir(&handle)?,
+                host.clone(),
+                fixer.clone(),
+            );
             models.load_at_startup();
             app.manage(models);
 
@@ -163,7 +169,7 @@ pub fn run() {
                 icons: paths::icons_dir(&handle)?,
                 clips: paths::clips_dir(&handle)?,
             };
-            let dictation = dictation::spawn(handle.clone(), host, db, dirs, shared, texts)?;
+            let dictation = dictation::spawn(handle.clone(), host, fixer, db, dirs, shared, texts)?;
             app.manage(dictation);
 
             if let Err(err) = tray::setup(&handle, prefs.show_in_tray) {

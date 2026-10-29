@@ -12,7 +12,9 @@
 mod csv;
 pub mod dictionary;
 pub mod fillers;
+pub mod fixup;
 pub mod format;
+pub mod learn;
 pub mod punctuation;
 pub mod roman_urdu;
 pub mod smart;

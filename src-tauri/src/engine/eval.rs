@@ -120,6 +120,7 @@ fn fixture_wer() {
         Family::Parakeet => Box::new(ParakeetEngine::new()),
         Family::Moonshine => Box::new(MoonshineEngine::new()),
         Family::Sensevoice => Box::new(SenseVoiceEngine::new()),
+        Family::Fixup => panic!("{id} is not a speech model"),
     };
     let loading = std::time::Instant::now();
     engine.load(&spec.path, &opts).unwrap();

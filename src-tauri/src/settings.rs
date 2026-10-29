@@ -63,6 +63,10 @@ pub struct Settings {
     pub voice_punctuation: bool,
     /// Lists, corrections, spoken breaks, email and chat layout.
     pub smart_formatting: bool,
+    /// Fix misheard words with the fix-up model, when it is downloaded.
+    pub fix_misheard_words: bool,
+    /// Add names and terms the user corrects to the dictionary.
+    pub learn_words: bool,
     pub typing_wpm: u32,
     // Privacy
     pub keep_audio_clips: bool,
@@ -91,6 +95,8 @@ impl Default for Settings {
             add_trailing_space: true,
             voice_punctuation: false,
             smart_formatting: true,
+            fix_misheard_words: true,
+            learn_words: true,
             typing_wpm: 40,
             keep_audio_clips: false,
         }
@@ -263,6 +269,7 @@ mod tests {
         assert!(!s.keep_audio_clips);
         assert!(s.remove_fillers && s.add_trailing_space && !s.voice_punctuation);
         assert!(s.smart_formatting);
+        assert!(s.fix_misheard_words && s.learn_words);
         assert!(s.validate().is_ok());
     }
 
