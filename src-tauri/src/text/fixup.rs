@@ -29,6 +29,9 @@ pub struct Context {
     pub earlier: String,
     /// Written forms from the dictionary.
     pub vocabulary: Vec<String>,
+    /// Also let the model propose its own word for any word it finds
+    /// unlikely ("Fix any misheard word").
+    pub any_word: bool,
 }
 
 /// The last `n` words of `text`, on one line.

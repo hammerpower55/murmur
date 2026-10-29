@@ -10,11 +10,13 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::audio::capture;
+use crate::chat::{self, Chat};
 use crate::db::insights::Insights;
 use crate::db::stats::HomeSummary;
 use crate::db::transcripts::TranscriptRow;
 use crate::db::Db;
 use crate::dictation::{self, Dictation};
+use crate::engine::fixer::Fixer;
 use crate::inject::icons;
 use crate::models::manager::{ModelManager, ModelsView};
 use crate::overlay::events::Style;
@@ -171,6 +173,7 @@ pub fn set_settings(
     shared: State<settings::Shared>,
     dictation: State<Dictation>,
     models: Models,
+    fixer: State<Arc<Fixer>>,
     next: Settings,
 ) -> Result<Settings, String> {
     next.validate().map_err(|e| e.to_string())?;
@@ -200,6 +203,10 @@ pub fn set_settings(
     }
     if next.roman_urdu != previous.roman_urdu {
         models.reload_active();
+    }
+    if previous.fix_misheard_words && !next.fix_misheard_words {
+        // Turned off: give its memory back now rather than when idle.
+        fixer.park();
     }
     if next.typing_wpm != previous.typing_wpm {
         let _ = app.emit("insights-changed", ());
@@ -399,4 +406,22 @@ pub async fn import_csv(app: AppHandle, kind: ListKind) -> Result<Option<usize>,
             Ok(Some(count))
         }
     }
+}
+
+/// Starts a reply from the word fixer's model on the Chat page; the text
+/// arrives as `chat-text` events and ends with `chat-done`.
+#[tauri::command]
+pub fn chat_send(
+    app: AppHandle,
+    chat: State<Chat>,
+    fixer: State<Arc<Fixer>>,
+    messages: Vec<chat::Message>,
+) -> Result<(), String> {
+    chat.send(app, fixer.inner().clone(), messages).map_err(|e| e.to_string())
+}
+
+/// Stops the reply being written on the Chat page.
+#[tauri::command]
+pub fn chat_stop(chat: State<Chat>) {
+    chat.stop();
 }

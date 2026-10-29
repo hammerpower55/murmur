@@ -109,6 +109,7 @@ export interface Settings {
   voicePunctuation: boolean;
   smartFormatting: boolean;
   fixMisheardWords: boolean;
+  fixAnyWord: boolean;
   learnWords: boolean;
   typingWpm: number;
   keepAudioClips: boolean;
@@ -119,6 +120,11 @@ export interface DictEntry {
   written: string;
   /** Added by Murmur from a correction you made. */
   learned?: boolean;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export interface Snippet {
@@ -174,6 +180,9 @@ export const api = {
   exportCsv: (kind: ListKind) => invoke<boolean>("export_csv", { kind }),
   /** Rows read, or null if the user cancelled. */
   importCsv: (kind: ListKind) => invoke<number | null>("import_csv", { kind }),
+  /** Starts a reply; it arrives as chatText events, then chatDone. */
+  chatSend: (messages: ChatMessage[]) => invoke<void>("chat_send", { messages }),
+  chatStop: () => invoke<void>("chat_stop"),
 };
 
 export const events = {
@@ -186,6 +195,13 @@ export const events = {
     listen<{ rms: number; peak: number }>("mic-level", (e) => cb(e.payload.rms)),
   modelsChanged: (cb: () => void): Promise<UnlistenFn> => listen("models-changed", () => cb()),
   dictionaryChanged: (cb: () => void): Promise<UnlistenFn> => listen("dictionary-changed", () => cb()),
+  /** The word fixer is loading before it can reply. */
+  chatLoading: (cb: () => void): Promise<UnlistenFn> => listen("chat-loading", () => cb()),
+  /** The reply so far. */
+  chatText: (cb: (text: string) => void): Promise<UnlistenFn> => listen<string>("chat-text", (e) => cb(e.payload)),
+  /** The reply is finished: null, or one line saying what went wrong. */
+  chatDone: (cb: (error: string | null) => void): Promise<UnlistenFn> =>
+    listen<string | null>("chat-done", (e) => cb(e.payload)),
   /** Words added to the dictionary from your corrections. */
   wordsLearned: (cb: (entries: DictEntry[]) => void): Promise<UnlistenFn> =>
     listen<DictEntry[]>("words-learned", (e) => cb(e.payload)),

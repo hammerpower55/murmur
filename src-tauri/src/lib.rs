@@ -1,4 +1,5 @@
 mod audio;
+mod chat;
 mod commands;
 mod db;
 mod dictation;
@@ -99,6 +100,8 @@ pub fn run() {
             commands::reset_roman_urdu,
             commands::export_csv,
             commands::import_csv,
+            commands::chat_send,
+            commands::chat_stop,
         ])
         .on_window_event(|window, event| {
 
@@ -150,6 +153,8 @@ pub fn run() {
             );
             models.load_at_startup();
             app.manage(models);
+            app.manage(fixer.clone());
+            app.manage(chat::Chat::new());
 
             let data_dir = paths::data_dir(&handle)?;
             let db_path = data_dir.join(db::FILE);

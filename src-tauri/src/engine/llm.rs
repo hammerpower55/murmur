@@ -7,7 +7,8 @@
 //! come from the model.
 //!
 //! A scored text keeps its cache, so an alternative only runs from the point
-//! where it differs.
+//! where it differs. The same model also writes replies for the Chat page
+//! (`generate`), so the word fixer can be tried out directly.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -170,22 +171,75 @@ impl Llm {
         Ok((enc.get_ids().to_vec(), enc.get_offsets().to_vec()))
     }
 
-    /// Scores every token of `ids` in one pass.
-    pub fn score(&self, ids: &[u32]) -> Result<Scored> {
+    /// Scores every token of `ids` in one pass. `top_at` lists positions
+    /// whose `k` most likely tokens are wanted too.
+    pub fn score(&self, ids: &[u32], top_at: &[usize], k: usize) -> Result<Scored> {
         let mut s = self.session.lock().map_err(|_| anyhow!("model poisoned"))?;
         let empty = self.empty_cache()?;
         let mut logprobs = vec![0.0f32; ids.len()];
+        let mut top = Vec::new();
         // Row p predicts token p + 1.
         let cache = self.run_with(&mut s, ids, &empty, ids.len(), |p, logits| {
+            let norm = log_sum_exp(logits);
             if let Some(&next) = ids.get(p + 1) {
-                logprobs[p + 1] = logits[next as usize] - log_sum_exp(logits);
+                logprobs[p + 1] = logits[next as usize] - norm;
+            }
+            if top_at.contains(&(p + 1)) {
+                top.push((p + 1, top_k(logits, k, norm)));
             }
         })?;
         Ok(Scored {
             ids: ids.to_vec(),
             logprobs,
+            top,
             cache,
         })
+    }
+
+    /// The text of one token, with its leading space if it has one.
+    pub fn token_text(&self, id: u32) -> String {
+        self.tokenizer.decode(&[id], false).unwrap_or_default()
+    }
+
+    pub fn encode(&self, text: &str) -> Result<Vec<u32>> {
+        Ok(self.encode_offsets(text)?.0)
+    }
+
+    pub fn decode(&self, ids: &[u32]) -> Result<String> {
+        self.tokenizer
+            .decode(ids, true)
+            .map_err(|e| anyhow!("could not detokenize: {e}"))
+    }
+
+    /// Writes a reply after `prompt`, one token at a time, picking the most
+    /// likely token with recent tokens made less likely so it does not loop.
+    /// `on_text` gets the reply so far after every token and returns false
+    /// to stop. Ends at an end of turn token or after `max_new` tokens. The
+    /// model is locked one step at a time, so a dictation can still be
+    /// scored while a reply is being written.
+    pub fn generate(&self, prompt: &[u32], max_new: usize, mut on_text: impl FnMut(&str) -> bool) -> Result<String> {
+        let stop: Vec<u32> = ["<|im_end|>", "<|endoftext|>"]
+            .iter()
+            .filter_map(|t| self.tokenizer.token_to_id(t))
+            .collect();
+        let lock = || self.session.lock().map_err(|_| anyhow!("model poisoned"));
+        let mut out: Vec<u32> = Vec::new();
+        let mut next = 0u32;
+        let empty = self.empty_cache()?;
+        let mut cache = self.run_with(&mut *lock()?, prompt, &empty, 1, |_, logits| {
+            next = pick(logits, &[]);
+        })?;
+        while out.len() < max_new && !stop.contains(&next) {
+            out.push(next);
+            if !on_text(&self.decode(&out)?) {
+                break;
+            }
+            let recent = &out[out.len().saturating_sub(RECENT)..];
+            cache = self.run_with(&mut *lock()?, &[next], &cache, 1, |_, logits| {
+                next = pick(logits, recent);
+            })?;
+        }
+        self.decode(&out)
     }
 
     /// Log probability of `tokens` following the first `keep` tokens of a
@@ -218,12 +272,52 @@ pub struct Scored {
     /// Log probability of each token given the ones before it (0 for the
     /// first).
     pub logprobs: Vec<f32>,
+    /// (position, most likely tokens there with their log probabilities).
+    pub top: Vec<(usize, Vec<(u32, f32)>)>,
     cache: Cache,
 }
 
 fn log_sum_exp(logits: &[f32]) -> f32 {
     let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     max + logits.iter().map(|&x| (x - max).exp()).sum::<f32>().ln()
+}
+
+/// The `k` most likely tokens with their log probabilities, best first.
+fn top_k(logits: &[f32], k: usize, norm: f32) -> Vec<(u32, f32)> {
+    let mut all: Vec<(u32, f32)> = logits.iter().enumerate().map(|(i, &x)| (i as u32, x)).collect();
+    let k = k.min(all.len());
+    if k == 0 {
+        return Vec::new();
+    }
+    all.select_nth_unstable_by(k - 1, |a, b| b.1.total_cmp(&a.1));
+    all.truncate(k);
+    all.sort_by(|a, b| b.1.total_cmp(&a.1));
+    all.into_iter().map(|(i, x)| (i, x - norm)).collect()
+}
+
+/// Tokens a reply looks back over when discouraging repeats.
+const RECENT: usize = 64;
+/// How much less likely a recent token is made (as in the CTRL paper).
+const REPEAT_PENALTY: f32 = 1.15;
+
+/// The most likely token, with `recent` tokens penalised.
+fn pick(logits: &[f32], recent: &[u32]) -> u32 {
+    let mut best = (0u32, f32::NEG_INFINITY);
+    for (i, &x) in logits.iter().enumerate() {
+        let x = if recent.contains(&(i as u32)) {
+            if x > 0.0 {
+                x / REPEAT_PENALTY
+            } else {
+                x * REPEAT_PENALTY
+            }
+        } else {
+            x
+        };
+        if x > best.1 {
+            best = (i as u32, x);
+        }
+    }
+    best.0
 }
 
 /// past_key_values.N.key/value inputs in layer order, with the key and value
@@ -275,6 +369,15 @@ fn layers(s: &Session) -> Result<(Vec<Layer>, usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pick_takes_the_best_and_discourages_repeats() {
+        let logits = [1.0f32, 3.0, 2.9];
+        assert_eq!(pick(&logits, &[]), 1);
+        // 3.0 / 1.15 falls below 2.9.
+        assert_eq!(pick(&logits, &[1]), 2);
+        assert_eq!(top_k(&logits, 2, 0.0), vec![(1, 3.0), (2, 2.9)]);
+    }
 
     #[test]
     fn log_sum_exp_is_stable_and_exact() {

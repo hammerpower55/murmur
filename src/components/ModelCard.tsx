@@ -42,6 +42,8 @@ interface Props {
   onDelete: () => void;
   /** Onboarding shows a lone card without the delete action. */
   compact?: boolean;
+  /** The word fixer: whether it is switched on. */
+  on?: boolean;
 }
 
 export function ModelCard(p: Props) {
@@ -56,7 +58,7 @@ export function ModelCard(p: Props) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-zinc-100">{model.name}</h3>
-            {model.family === "fixup" && model.installed && (
+            {model.family === "fixup" && model.installed && p.on && (
               <span className="animate-pop rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-ink">
                 On
               </span>

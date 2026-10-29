@@ -372,6 +372,14 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             onChange={(v) => set({ fixMisheardWords: v })}
           />
         </Row>
+        <Row label="Check every word, not only your own words">
+          <Toggle
+            label="Check every word"
+            checked={s.fixAnyWord}
+            disabled={!s.fixMisheardWords}
+            onChange={(v) => set({ fixAnyWord: v })}
+          />
+        </Row>
         <Row label="Learn words from your corrections">
           <Toggle
             label="Learn words from your corrections"

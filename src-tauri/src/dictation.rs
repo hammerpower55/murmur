@@ -473,7 +473,7 @@ impl Controller {
 
         let user = self.text.get();
         let (heard, swaps) = if prefs.fix_misheard_words {
-            self.fix_up(&raw, &target, &user.dictionary)
+            self.fix_up(&raw, &target, &user.dictionary, prefs.fix_any_word)
         } else {
             (raw.clone(), Vec::new())
         };
@@ -558,7 +558,13 @@ impl Controller {
     /// the field, earlier dictation and the dictionary as context, and the
     /// words swapped. As heard when the fix-up model is missing, still
     /// loading or finds nothing.
-    fn fix_up(&mut self, raw: &str, target: &focus::FocusedApp, dictionary: &[DictEntry]) -> (String, Vec<Swap>) {
+    fn fix_up(
+        &mut self,
+        raw: &str,
+        target: &focus::FocusedApp,
+        dictionary: &[DictEntry],
+        any_word: bool,
+    ) -> (String, Vec<Swap>) {
         let before = self.before_cursor.take();
         if !self.fixer.is_loaded() {
             return (raw.to_string(), Vec::new());
@@ -579,6 +585,7 @@ impl Controller {
             before,
             earlier,
             vocabulary: dictionary.iter().map(|e| e.written.clone()).collect(),
+            any_word,
         };
         self.fixer
             .fix(raw, &ctx)

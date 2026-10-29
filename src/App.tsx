@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Chat } from "./app/Chat";
 import { Dictionary } from "./app/Dictionary";
 import { History } from "./app/History";
 import { Home } from "./app/Home";
@@ -13,7 +14,7 @@ import { APP_NAME } from "./lib/app";
 import { subscribeDictation, useDictation } from "./store/dictation";
 import { subscribeModels } from "./store/models";
 
-type Page = "home" | "insights" | "history" | "dictionary" | "snippets" | "models" | "settings";
+type Page = "home" | "insights" | "history" | "dictionary" | "snippets" | "models" | "chat" | "settings";
 type Screen = "loading" | "onboarding" | Page;
 
 const NAV: { id: Page; label: string }[] = [
@@ -23,6 +24,7 @@ const NAV: { id: Page; label: string }[] = [
   { id: "dictionary", label: "Dictionary" },
   { id: "snippets", label: "Snippets" },
   { id: "models", label: "Models" },
+  { id: "chat", label: "Chat" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -117,13 +119,14 @@ function App() {
       <Nav screen={screen} go={setScreen} />
       <main ref={main} className="min-w-0 flex-1 overflow-y-auto">
         {/* Keyed by page so each visit plays its entrance. */}
-        <div key={screen} className="animate-page">
+        <div key={screen} className={`animate-page ${screen === "chat" ? "h-full" : ""}`}>
           {screen === "home" && <Home onSeeHistory={() => setScreen("history")} />}
           {screen === "insights" && <Insights />}
           {screen === "history" && <History />}
           {screen === "dictionary" && <Dictionary />}
           {screen === "snippets" && <Snippets />}
-          {screen === "models" && <Models />}
+          {screen === "models" && <Models onOpenChat={() => setScreen("chat")} />}
+          {screen === "chat" && <Chat onOpenModels={() => setScreen("models")} />}
           {screen === "settings" && <Settings onOpenModels={() => setScreen("models")} />}
         </div>
       </main>

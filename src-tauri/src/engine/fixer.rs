@@ -52,6 +52,25 @@ impl Fixer {
         self.inner.lock().is_ok_and(|i| i.llm.is_some())
     }
 
+    /// The loaded model, loading it first if needed and waiting up to
+    /// `timeout`. None if there is no model or it did not load in time.
+    pub fn model(self: &Arc<Self>, timeout: std::time::Duration) -> Option<Arc<Llm>> {
+        self.wake();
+        let deadline = Instant::now() + timeout;
+        loop {
+            {
+                let inner = self.inner.lock().ok()?;
+                if let Some(llm) = &inner.llm {
+                    return Some(llm.clone());
+                }
+                if !inner.loading || Instant::now() >= deadline {
+                    return None;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
     /// Starts loading the model if there is one and it is not loaded.
     pub fn wake(self: &Arc<Self>) {
         let (dir, generation) = {
@@ -95,7 +114,8 @@ impl Fixer {
         }
     }
 
-    /// Frees the model's memory; the next wake loads it again.
+    /// Frees the model's memory; the next wake loads it again. Anything
+    /// still using it (a chat reply) keeps its own handle until done.
     pub fn park(&self) {
         if let Ok(mut inner) = self.inner.lock() {
             if inner.llm.take().is_some() {
@@ -108,8 +128,8 @@ impl Fixer {
     /// None to keep it as heard.
     pub fn fix(&self, transcript: &str, ctx: &Context) -> Option<(String, Vec<Swap>)> {
         // Most dictations have nothing that sounds like the user's words:
-        // the model is not needed then.
-        if fixup::candidates(transcript, ctx).is_empty() {
+        // the model is not needed then, unless every word is checked.
+        if !ctx.any_word && fixup::candidates(transcript, ctx).is_empty() {
             return None;
         }
         let llm = self.inner.lock().ok()?.llm.clone();
@@ -154,6 +174,45 @@ const SUFFIX_TOKENS: usize = 16;
 const MIN_GAIN: f32 = 3.0;
 /// The same for a word from the user's dictionary.
 const MIN_GAIN_DICTIONARY: f32 = 1.5;
+/// "Fix any misheard word": a word the model proposes itself must make the
+/// text this much more likely (e^8, about 3000 times). Lower let "weather"
+/// become "water" (+6.5) and "place" become "face" (+7.1).
+const MIN_GAIN_OPEN: f32 = 8.0;
+/// Words less likely than this in context (natural log probability of the
+/// whole word) are the ones checked in that mode.
+const SUSPECT_BELOW: f32 = -5.0;
+/// Most words checked, and alternatives tried for each, in that mode.
+const MAX_SUSPECTS: usize = 4;
+const MAX_OPEN_CANDIDATES: usize = 4;
+/// Likely tokens looked through for alternatives that sound alike.
+const TOP_K: usize = 2000;
+
+/// A word the model may be asked about: plain letters, not a stopword, not
+/// a name the recogniser capitalised mid sentence, not a dictionary word.
+fn open_checkable(transcript: &str, start: usize, end: usize, known: &[String]) -> bool {
+    let word = &transcript[start..end];
+    let before = transcript[..start].trim_end();
+    let sentence_start = before.is_empty() || before.ends_with(['.', '!', '?', '\n']);
+    word.chars().count() >= 2
+        && word.chars().all(|c| c.is_alphabetic() || c == '\'')
+        && !crate::text::stopwords::is_stopword(word)
+        && (sentence_start || !word.chars().next().is_some_and(char::is_uppercase))
+        && !known.contains(&word.to_lowercase())
+}
+
+/// A replacement to score.
+struct Try {
+    /// Byte range in the transcript.
+    start: usize,
+    end: usize,
+    /// First and last token of that range.
+    tokens: (usize, usize),
+    meant: String,
+    /// The replacement's tokens.
+    alternative: Vec<u32>,
+    /// Gain it must reach.
+    needed: f32,
+}
 
 /// One place in the transcript where a better word was found.
 #[derive(Debug, Clone)]
@@ -176,7 +235,7 @@ fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Re
         return Ok((Vec::new(), notes));
     }
     let candidates = fixup::candidates(transcript, ctx);
-    if candidates.is_empty() {
+    if candidates.is_empty() && !ctx.any_word {
         return Ok((Vec::new(), notes));
     }
     let lead = fixup::lead(ctx);
@@ -192,29 +251,89 @@ fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Re
         let (&t0, &t1) = (inside.first()?, inside.last()?);
         (t0 > 0 && offsets[t1].1 <= te && offsets[t0].0 + 1 >= ts).then_some((t0, t1))
     };
-    let scored = llm.score(&ids)?;
+    // Every word: plain words the model can be asked about, with their tokens.
+    let known: Vec<String> = ctx.vocabulary.iter().map(|w| w.trim().to_lowercase()).collect();
+    let open_words: Vec<(usize, usize, usize, usize)> = if ctx.any_word {
+        fixup::word_spans(transcript)
+            .into_iter()
+            .filter(|&(s, e)| open_checkable(transcript, s, e, &known))
+            .filter_map(|(s, e)| tokens_of(s, e).map(|(t0, t1)| (s, e, t0, t1)))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let top_at: Vec<usize> = open_words.iter().map(|w| w.2).collect();
+    let scored = llm.score(&ids, &top_at, TOP_K)?;
 
-    let mut best: Vec<Rescore> = Vec::new();
+    let mut tries: Vec<Try> = Vec::new();
+    let spaced = |start: usize| text[..start + lead.len()].ends_with(' ');
     for c in candidates {
-        let heard = &transcript[c.start..c.end];
         let Some((t0, t1)) = tokens_of(c.start, c.end) else {
             continue;
         };
-        let spaced = text[..c.start + lead.len()].ends_with(' ');
-        let (mut alternative, _) = llm.encode_offsets(&format!("{}{}", if spaced { " " } else { "" }, c.meant))?;
-        let end = (t1 + SUFFIX_TOKENS).min(ids.len() - 1);
-        let heard_score: f32 = scored.logprobs[t0..=end].iter().sum();
-        alternative.extend_from_slice(&ids[t1 + 1..=end]);
-        let gain = llm.continuation(&scored, t0, &alternative)? - heard_score;
-        notes.push(format!("{heard} => {}: {gain:+.1}", c.meant));
+        let prefix = if spaced(c.start) { " " } else { "" };
+        let (tokens, _) = llm.encode_offsets(&format!("{prefix}{}", c.meant))?;
         let needed = if c.from_dictionary { MIN_GAIN_DICTIONARY } else { MIN_GAIN };
-        if gain >= needed {
-            best.push(Rescore {
-                start: c.start,
-                end: c.end,
-                meant: c.meant,
-                gain,
+        tries.push(Try {
+            start: c.start,
+            end: c.end,
+            tokens: (t0, t1),
+            meant: c.meant,
+            alternative: tokens,
+            needed,
+        });
+    }
+    // The words the model finds least likely, against the words it expected
+    // there that sound alike. A word that sounds like one of the user's own
+    // is left to that: the model's guess ("Maria") must not beat "Maaz".
+    let own: Vec<(usize, usize)> = tries.iter().map(|t| (t.start, t.end)).collect();
+    let mut suspects: Vec<(usize, usize, usize, usize, f32)> = open_words
+        .iter()
+        .filter(|&&(s, e, _, _)| own.iter().all(|&(os, oe)| e <= os || s >= oe))
+        .map(|&(s, e, t0, t1)| (s, e, t0, t1, scored.logprobs[t0..=t1].iter().sum::<f32>()))
+        .filter(|w| w.4 < SUSPECT_BELOW)
+        .collect();
+    suspects.sort_by(|a, b| a.4.total_cmp(&b.4));
+    suspects.truncate(MAX_SUSPECTS);
+    for &(s, e, t0, t1, _) in &suspects {
+        let heard = &transcript[s..e];
+        let top = scored.top.iter().find(|(p, _)| *p == t0).map_or(&[][..], |(_, t)| t.as_slice());
+        let mut found = 0;
+        for &(token, _) in top {
+            let piece = llm.token_text(token);
+            let meant = piece.trim();
+            if spaced(s) != piece.starts_with(' ')
+                || meant.chars().count() < 2
+                || !meant.chars().all(|c| c.is_alphabetic() || c == '\'')
+                || meant.eq_ignore_ascii_case(heard)
+                || !fixup::sounds_alike(heard, meant)
+            {
+                continue;
+            }
+            tries.push(Try {
+                start: s,
+                end: e,
+                tokens: (t0, t1),
+                meant: meant.to_string(),
+                alternative: vec![token],
+                needed: MIN_GAIN_OPEN,
             });
+            found += 1;
+            if found == MAX_OPEN_CANDIDATES {
+                break;
+            }
+        }
+    }
+
+    let mut best: Vec<Rescore> = Vec::new();
+    for Try { start, end, tokens: (t0, t1), meant, mut alternative, needed } in tries {
+        let last = (t1 + SUFFIX_TOKENS).min(ids.len() - 1);
+        let heard_score: f32 = scored.logprobs[t0..=last].iter().sum();
+        alternative.extend_from_slice(&ids[t1 + 1..=last]);
+        let gain = llm.continuation(&scored, t0, &alternative)? - heard_score;
+        notes.push(format!("{} => {meant}: {gain:+.1}", &transcript[start..end]));
+        if gain >= needed {
+            best.push(Rescore { start, end, meant, gain });
         }
     }
 
@@ -248,6 +367,7 @@ mod eval {
             before: before.into(),
             earlier: earlier.into(),
             vocabulary: Vec::new(),
+            any_word: std::env::var_os("MURMUR_FIXUP_ANY").is_some(),
         }
     }
 

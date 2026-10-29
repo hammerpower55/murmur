@@ -1,10 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { buttonClass, Toggle } from "../components/controls";
 import { ModelCard } from "../components/ModelCard";
 import { LANGUAGE_NAMES, supportsLanguage } from "../lib/format";
 import { useModels } from "../store/models";
+import { useSettings } from "../store/settings";
 
-export function Models() {
+export function Models({ onOpenChat }: { onOpenChat: () => void }) {
   const { view, errors, download, cancel, use, remove } = useModels();
+  const { settings, load: loadSettings, update } = useSettings();
+  useEffect(() => {
+    if (!settings) void loadSettings();
+  }, [settings, loadSettings]);
   const [query, setQuery] = useState("");
   const [language, setLanguage] = useState("");
 
@@ -37,6 +43,7 @@ export function Models() {
       onCancel={() => void cancel(m.id)}
       onUse={() => void use(m.id)}
       onDelete={() => void remove(m.id)}
+      on={settings?.fixMisheardWords}
     />
   );
   const romanUrduHint = view.romanUrdu && active !== undefined && active.family !== "whisper";
@@ -83,6 +90,33 @@ export function Models() {
         <>
           <h2 className="mt-10 text-sm font-semibold text-zinc-100">Fix misheard words</h2>
           <div className="stagger mt-3 flex flex-col gap-3">{fixers.map(card)}</div>
+          {settings && fixers.some((m) => m.installed) && (
+            <div className="surface mt-3 flex animate-pop flex-col divide-y divide-white/6 rounded-xl">
+              <label className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-zinc-200">
+                Fix misheard words
+                <Toggle
+                  label="Fix misheard words"
+                  checked={settings.fixMisheardWords}
+                  onChange={(v) => void update({ fixMisheardWords: v })}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-zinc-200">
+                Check every word, not only your own words
+                <Toggle
+                  label="Check every word"
+                  checked={settings.fixAnyWord}
+                  disabled={!settings.fixMisheardWords}
+                  onChange={(v) => void update({ fixAnyWord: v })}
+                />
+              </label>
+              <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-zinc-200">
+                Talk to the model to see what it can do
+                <button className={buttonClass} onClick={onOpenChat}>
+                  Open chat
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </section>
