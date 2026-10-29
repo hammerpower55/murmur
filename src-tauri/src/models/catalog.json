@@ -57,6 +57,48 @@
       ]
     },
     {
+      "id": "parakeet-unified-en-0.6b",
+      "name": "Parakeet Unified",
+      "family": "parakeet",
+      "accuracy": 5,
+      "speed": 4,
+      "languages": ["en"],
+      "languages_label": "English only",
+      "ram_mb": 900,
+      "files": [
+        {
+          "name": "encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming/resolve/8c3a10fb13408c7a7054f6898958bf1c64a8d6c7/encoder.int8.onnx",
+          "size": 654040552,
+          "sha256": "6716910b7a0833997fec7a410494c995d70124001a0e9b66d6370d6aced577e0"
+        },
+        {
+          "name": "decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming/resolve/8c3a10fb13408c7a7054f6898958bf1c64a8d6c7/decoder.int8.onnx",
+          "size": 7257753,
+          "sha256": "a5e223392c90e75f8144cdb5eb95af7625db389e39edef2bd1a9c872b3298fe6"
+        },
+        {
+          "name": "joiner.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming/resolve/8c3a10fb13408c7a7054f6898958bf1c64a8d6c7/joiner.int8.onnx",
+          "size": 1735860,
+          "sha256": "869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a"
+        },
+        {
+          "name": "tokens.txt",
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming/resolve/8c3a10fb13408c7a7054f6898958bf1c64a8d6c7/tokens.txt",
+          "size": 8952,
+          "git_sha1": "50918f5e313e1cf846cf77dfd5b4489c9c7f0b76"
+        },
+        {
+          "name": "nemo128.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/nemo128.onnx",
+          "size": 139764,
+          "sha256": "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"
+        }
+      ]
+    },
+    {
       "id": "parakeet-tdt-0.6b-v3",
       "name": "Parakeet v3",
       "family": "parakeet",

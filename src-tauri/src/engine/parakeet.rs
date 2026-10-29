@@ -1,11 +1,18 @@
-//! NVIDIA Parakeet TDT 0.6B (v2: English, v3: 25 European languages) through
-//! ONNX Runtime on the CPU, using istupakov's ONNX export. The pipeline
-//! follows istupakov/onnx-asr, as Handy's transcribe-rs does:
+//! NVIDIA Parakeet through ONNX Runtime on the CPU. Two exports are read:
+//!
+//! - TDT 0.6B v2 (English) and v3 (25 European languages), istupakov's
+//!   export: encoder-model, decoder_joint-model and vocab.txt.
+//! - Parakeet Unified EN 0.6B, an RNN-T model, in the sherpa-onnx export:
+//!   encoder, decoder and joiner, tokens.txt. Its features match the TDT
+//!   models', so it ships with the same nemo128.onnx.
+//!
+//! The pipeline follows istupakov/onnx-asr, as Handy's transcribe-rs does:
 //!
 //! 1. nemo128.onnx turns 16 kHz audio into 128 bin log mel features.
 //! 2. The encoder turns features into one vector per 80 ms frame.
-//! 3. Greedy TDT decoding: the joint network predicts a token and how many
-//!    frames to skip, so most frames are never visited.
+//! 3. Greedy decoding. TDT: the joint network predicts a token and how many
+//!    frames to skip, so most frames are never visited. RNN-T: every frame
+//!    is visited and emits tokens until the joiner picks blank.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -22,6 +29,11 @@ pub const PREPROCESSOR: &str = "nemo128.onnx";
 pub const ENCODER: &str = "encoder-model.int8.onnx";
 pub const DECODER: &str = "decoder_joint-model.int8.onnx";
 pub const VOCAB: &str = "vocab.txt";
+/// The RNN-T export's files.
+pub const RNNT_ENCODER: &str = "encoder.int8.onnx";
+pub const RNNT_DECODER: &str = "decoder.int8.onnx";
+pub const RNNT_JOINER: &str = "joiner.int8.onnx";
+pub const RNNT_VOCAB: &str = "tokens.txt";
 
 /// Decoder state: 2 LSTM layers, batch 1, 640 hidden units.
 const STATE_SHAPE: [usize; 3] = [2, 1, 640];
@@ -30,10 +42,21 @@ const MAX_TOKENS_PER_STEP: usize = 10;
 /// The encoder subsamples 10 ms feature frames by 8.
 const FRAME_MS: u64 = 80;
 
+/// How tokens are read off the encoder frames.
+enum Decoding {
+    /// decoder_joint-model: tokens and frame skips in one network.
+    Tdt(Mutex<Session>),
+    /// Separate prediction network and joiner.
+    Rnnt {
+        decoder: Mutex<Session>,
+        joiner: Mutex<Session>,
+    },
+}
+
 struct Loaded {
     preprocessor: Mutex<Session>,
     encoder: Mutex<Session>,
-    decoder: Mutex<Session>,
+    decoding: Decoding,
     vocab: Vec<String>,
     blank: usize,
 }
@@ -89,13 +112,24 @@ impl SpeechEngine for ParakeetEngine {
     fn load(&mut self, model_path: &Path, opts: &EngineOptions) -> Result<()> {
         self.unload();
         let threads = opts.n_threads;
-        let vocab_text = std::fs::read_to_string(model_path.join(VOCAB))
-            .with_context(|| format!("could not read {VOCAB}"))?;
+        let rnnt = model_path.join(RNNT_JOINER).is_file();
+        let vocab_file = if rnnt { RNNT_VOCAB } else { VOCAB };
+        let vocab_text = std::fs::read_to_string(model_path.join(vocab_file))
+            .with_context(|| format!("could not read {vocab_file}"))?;
         let (vocab, blank) = parse_vocab(&vocab_text)?;
+        let decoding = if rnnt {
+            Decoding::Rnnt {
+                decoder: Mutex::new(session(model_path, RNNT_DECODER, threads)?),
+                joiner: Mutex::new(session(model_path, RNNT_JOINER, threads)?),
+            }
+        } else {
+            Decoding::Tdt(Mutex::new(session(model_path, DECODER, threads)?))
+        };
+        let encoder = if rnnt { RNNT_ENCODER } else { ENCODER };
         self.loaded = Some(Loaded {
             preprocessor: Mutex::new(session(model_path, PREPROCESSOR, threads)?),
-            encoder: Mutex::new(session(model_path, ENCODER, threads)?),
-            decoder: Mutex::new(session(model_path, DECODER, threads)?),
+            encoder: Mutex::new(session(model_path, encoder, threads)?),
+            decoding,
             vocab,
             blank,
         });
@@ -153,50 +187,18 @@ impl SpeechEngine for ParakeetEngine {
             (by_frame, dim, frames)
         };
 
-        // 3. Greedy TDT decoding.
-        let vocab_size = m.vocab.len();
-        let state_len: usize = STATE_SHAPE.iter().product();
-        let mut state = (vec![0.0f32; state_len], vec![0.0f32; state_len]);
-        let mut tokens: Vec<usize> = Vec::new();
-        let mut token_frames: Vec<usize> = Vec::new();
-        let mut decoder = m.decoder.lock().map_err(|_| lock("decoder"))?;
-        let mut t = 0usize;
-        let mut emitted = 0usize;
-        while t < frames {
-            let frame = encoded[t * dim..(t + 1) * dim].to_vec();
-            let previous = tokens.last().copied().unwrap_or(m.blank) as i32;
-            let out = decoder.run(ort::inputs![
-                "encoder_outputs" => Tensor::from_array(([1usize, dim, 1], frame))?,
-                "targets" => Tensor::from_array(([1usize, 1], vec![previous]))?,
-                "target_length" => Tensor::from_array(([1usize], vec![1i32]))?,
-                "input_states_1" => Tensor::from_array((STATE_SHAPE, state.0.clone()))?,
-                "input_states_2" => Tensor::from_array((STATE_SHAPE, state.1.clone()))?,
-            ])?;
-            let (_, logits) = out["outputs"].try_extract_tensor::<f32>()?;
-            if logits.len() <= vocab_size {
-                bail!(
-                    "decoder returned {} values for {vocab_size} tokens",
-                    logits.len()
-                );
+        // 3. Greedy decoding.
+        let (tokens, token_frames) = match &m.decoding {
+            Decoding::Tdt(decoder) => {
+                let mut decoder = decoder.lock().map_err(|_| lock("decoder"))?;
+                decode_tdt(&mut decoder, m, &encoded, dim, frames)?
             }
-            let token = argmax(&logits[..vocab_size]);
-            let skip = argmax(&logits[vocab_size..]);
-            if token != m.blank {
-                let (_, s1) = out["output_states_1"].try_extract_tensor::<f32>()?;
-                let (_, s2) = out["output_states_2"].try_extract_tensor::<f32>()?;
-                state = (s1.to_vec(), s2.to_vec());
-                tokens.push(token);
-                token_frames.push(t);
-                emitted += 1;
+            Decoding::Rnnt { decoder, joiner } => {
+                let mut decoder = decoder.lock().map_err(|_| lock("decoder"))?;
+                let mut joiner = joiner.lock().map_err(|_| lock("joiner"))?;
+                decode_rnnt(&mut decoder, &mut joiner, m.blank, &encoded, dim, frames)?
             }
-            if skip > 0 {
-                t += skip;
-                emitted = 0;
-            } else if token == m.blank || emitted == MAX_TOKENS_PER_STEP {
-                t += 1;
-                emitted = 0;
-            }
-        }
+        };
 
         let text = detokenize(&m.vocab, &tokens);
         let segments = if text.is_empty() {
@@ -215,6 +217,110 @@ impl SpeechEngine for ParakeetEngine {
             inference_ms: started.elapsed().as_millis() as u64,
         })
     }
+}
+
+/// Token ids and the frame each was emitted at.
+type Decoded = (Vec<usize>, Vec<usize>);
+
+/// The prediction network's LSTM state: hidden and cell.
+type State = (Vec<f32>, Vec<f32>);
+
+/// Greedy TDT: each step predicts a token and how many frames to skip.
+fn decode_tdt(decoder: &mut Session, m: &Loaded, encoded: &[f32], dim: usize, frames: usize) -> Result<Decoded> {
+    let vocab_size = m.vocab.len();
+    let state_len: usize = STATE_SHAPE.iter().product();
+    let mut state = (vec![0.0f32; state_len], vec![0.0f32; state_len]);
+    let mut tokens: Vec<usize> = Vec::new();
+    let mut token_frames: Vec<usize> = Vec::new();
+    let mut t = 0usize;
+    let mut emitted = 0usize;
+    while t < frames {
+        let frame = encoded[t * dim..(t + 1) * dim].to_vec();
+        let previous = tokens.last().copied().unwrap_or(m.blank) as i32;
+        let out = decoder.run(ort::inputs![
+            "encoder_outputs" => Tensor::from_array(([1usize, dim, 1], frame))?,
+            "targets" => Tensor::from_array(([1usize, 1], vec![previous]))?,
+            "target_length" => Tensor::from_array(([1usize], vec![1i32]))?,
+            "input_states_1" => Tensor::from_array((STATE_SHAPE, state.0.clone()))?,
+            "input_states_2" => Tensor::from_array((STATE_SHAPE, state.1.clone()))?,
+        ])?;
+        let (_, logits) = out["outputs"].try_extract_tensor::<f32>()?;
+        if logits.len() <= vocab_size {
+            bail!(
+                "decoder returned {} values for {vocab_size} tokens",
+                logits.len()
+            );
+        }
+        let token = argmax(&logits[..vocab_size]);
+        let skip = argmax(&logits[vocab_size..]);
+        if token != m.blank {
+            let (_, s1) = out["output_states_1"].try_extract_tensor::<f32>()?;
+            let (_, s2) = out["output_states_2"].try_extract_tensor::<f32>()?;
+            state = (s1.to_vec(), s2.to_vec());
+            tokens.push(token);
+            token_frames.push(t);
+            emitted += 1;
+        }
+        if skip > 0 {
+            t += skip;
+            emitted = 0;
+        } else if token == m.blank || emitted == MAX_TOKENS_PER_STEP {
+            t += 1;
+            emitted = 0;
+        }
+    }
+    Ok((tokens, token_frames))
+}
+
+/// One step of the RNN-T prediction network: the output for `token` and
+/// the next state.
+fn predict(decoder: &mut Session, token: usize, state: &State) -> Result<(Vec<f32>, State)> {
+    let out = decoder.run(ort::inputs![
+        "targets" => Tensor::from_array(([1usize, 1], vec![token as i32]))?,
+        "target_length" => Tensor::from_array(([1usize], vec![1i32]))?,
+        "states.1" => Tensor::from_array((STATE_SHAPE, state.0.clone()))?,
+        "onnx::Slice_3" => Tensor::from_array((STATE_SHAPE, state.1.clone()))?,
+    ])?;
+    let (_, output) = out["outputs"].try_extract_tensor::<f32>()?;
+    let (_, h) = out["states"].try_extract_tensor::<f32>()?;
+    let (_, c) = out["162"].try_extract_tensor::<f32>()?;
+    Ok((output.to_vec(), (h.to_vec(), c.to_vec())))
+}
+
+/// Greedy RNN-T: every frame emits tokens until the joiner picks blank.
+/// Decoding starts from blank, as NeMo and sherpa-onnx do.
+fn decode_rnnt(
+    decoder: &mut Session,
+    joiner: &mut Session,
+    blank: usize,
+    encoded: &[f32],
+    dim: usize,
+    frames: usize,
+) -> Result<Decoded> {
+    let state_len: usize = STATE_SHAPE.iter().product();
+    let zero = (vec![0.0f32; state_len], vec![0.0f32; state_len]);
+    let (mut predicted, mut state) = predict(decoder, blank, &zero)?;
+    let mut tokens = Vec::new();
+    let mut token_frames = Vec::new();
+    for t in 0..frames {
+        let frame = encoded[t * dim..(t + 1) * dim].to_vec();
+        for _ in 0..MAX_TOKENS_PER_STEP {
+            let hidden = predicted.len();
+            let out = joiner.run(ort::inputs![
+                "encoder_outputs" => Tensor::from_array(([1usize, dim, 1], frame.clone()))?,
+                "decoder_outputs" => Tensor::from_array(([1usize, hidden, 1], predicted.clone()))?,
+            ])?;
+            let (_, logits) = out["outputs"].try_extract_tensor::<f32>()?;
+            let token = argmax(logits);
+            if token == blank {
+                break;
+            }
+            tokens.push(token);
+            token_frames.push(t);
+            (predicted, state) = predict(decoder, token, &state)?;
+        }
+    }
+    Ok((tokens, token_frames))
 }
 
 #[cfg(test)]
@@ -243,6 +349,17 @@ mod tests {
             .collect();
         assert_eq!(detokenize(&vocab, &[0, 1, 2, 4]), "hello world.");
         assert_eq!(detokenize(&vocab, &[]), "");
+    }
+
+    /// Prints the transducer files of the Parakeet Unified download.
+    #[test]
+    #[ignore = "needs the Parakeet Unified download and ONNX Runtime"]
+    fn probe_unified_io() {
+        onnx::use_vendored_runtime();
+        let dir = onnx::installed_model_dir("parakeet-unified-en-0.6b");
+        for file in ["decoder.int8.onnx", "joiner.int8.onnx"] {
+            onnx::print_io(&dir, file);
+        }
     }
 
     /// Prints every model's real input and output names and types.
