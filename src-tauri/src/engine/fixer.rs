@@ -10,10 +10,18 @@ use super::default_threads;
 use super::llm::Llm;
 use crate::text::fixup::{self, Context, Swap};
 
+/// An installed word fixer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FixupModel {
+    pub dir: PathBuf,
+    /// Its chat prompt needs an empty think block (see `CatalogModel`).
+    pub thinking: bool,
+}
+
 #[derive(Default)]
 struct Inner {
-    /// The installed model's folder.
-    dir: Option<PathBuf>,
+    /// The installed model.
+    model: Option<FixupModel>,
     llm: Option<Arc<Llm>>,
     loading: bool,
     /// Bumped on every change of model, so a stale load is thrown away.
@@ -30,14 +38,14 @@ impl Fixer {
         Arc::new(Self::default())
     }
 
-    /// The installed model's folder, or None once it is deleted. Unloads
-    /// whatever was loaded.
-    pub fn set_model(&self, dir: Option<PathBuf>) {
+    /// The installed model, or None once it is deleted. Unloads whatever
+    /// was loaded.
+    pub fn set_model(&self, model: Option<FixupModel>) {
         if let Ok(mut inner) = self.inner.lock() {
-            if inner.dir == dir {
+            if inner.model == model {
                 return;
             }
-            inner.dir = dir;
+            inner.model = model;
             inner.llm = None;
             inner.loading = false;
             inner.generation += 1;
@@ -45,7 +53,14 @@ impl Fixer {
     }
 
     pub fn has_model(&self) -> bool {
-        self.inner.lock().is_ok_and(|i| i.dir.is_some())
+        self.inner.lock().is_ok_and(|i| i.model.is_some())
+    }
+
+    /// Whether the installed model's chat prompt needs an empty think block.
+    pub fn thinking(&self) -> bool {
+        self.inner
+            .lock()
+            .is_ok_and(|i| i.model.as_ref().is_some_and(|m| m.thinking))
     }
 
     pub fn is_loaded(&self) -> bool {
@@ -77,7 +92,7 @@ impl Fixer {
             let Ok(mut inner) = self.inner.lock() else {
                 return;
             };
-            let Some(dir) = inner.dir.clone() else {
+            let Some(dir) = inner.model.as_ref().map(|m| m.dir.clone()) else {
                 return;
             };
             if inner.llm.is_some() || inner.loading {
@@ -355,7 +370,7 @@ fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Re
 ///
 ///   cargo test --release fixup_eval -- --ignored --nocapture
 ///
-/// MURMUR_FIXUP_ID picks the model folder (default qwen3-1.7b-int4).
+/// MURMUR_FIXUP_ID picks the model folder (default qwen3-4b-instruct-int4).
 #[cfg(test)]
 mod eval {
     use super::*;
@@ -465,7 +480,7 @@ mod eval {
     #[test]
     #[ignore = "needs the downloaded fix-up model"]
     fn fixup_eval() {
-        let id = std::env::var("MURMUR_FIXUP_ID").unwrap_or_else(|_| "qwen3-1.7b-int4".into());
+        let id = std::env::var("MURMUR_FIXUP_ID").unwrap_or_else(|_| "qwen3-4b-instruct-int4".into());
         onnx::use_vendored_runtime();
         let started = Instant::now();
         let llm = Llm::load(&onnx::installed_model_dir(&id), default_threads()).unwrap();

@@ -43,7 +43,7 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
       onCancel={() => void cancel(m.id)}
       onUse={() => void use(m.id)}
       onDelete={() => void remove(m.id)}
-      on={settings?.fixMisheardWords}
+      on={settings?.fixMisheardWords === true && view.fixer === m.id}
     />
   );
   const romanUrduHint = view.romanUrdu && active !== undefined && active.family !== "whisper";

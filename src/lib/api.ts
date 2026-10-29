@@ -35,6 +35,8 @@ export interface ModelsView {
   loading: string | null;
   downloads: Record<string, Progress>;
   romanUrdu: boolean;
+  /** The word fixer in use, if one is installed. */
+  fixer: string | null;
 }
 
 export interface TranscriptRow {

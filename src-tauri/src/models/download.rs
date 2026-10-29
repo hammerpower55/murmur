@@ -32,6 +32,53 @@ pub fn is_cancelled(err: &anyhow::Error) -> bool {
     err.downcast_ref::<Cancelled>().is_some()
 }
 
+/// Returned (inside anyhow) when the drive cannot hold what is left to
+/// download, checked before starting.
+#[derive(Debug)]
+pub struct NoSpace {
+    /// Bytes still missing beyond what the drive has free.
+    pub short: u64,
+}
+
+impl std::fmt::Display for NoSpace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "not enough disk space ({} bytes short)", self.short)
+    }
+}
+
+impl std::error::Error for NoSpace {}
+
+/// Kept free after a download, so the drive is never filled to the brim.
+const SPARE_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Bytes free for this user on the drive holding `dir`.
+fn free_bytes(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut free = 0u64;
+    // SAFETY: `wide` is a NUL terminated path that outlives the call.
+    unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut free), None, None) }.ok()?;
+    Some(free)
+}
+
+/// Bytes still to download for `model` into `dir`, counting partial files.
+fn remaining(model: &CatalogModel, dir: &Path) -> u64 {
+    model
+        .files
+        .iter()
+        .map(|file| {
+            let target = dir.join(&file.name);
+            if file_complete(&target, file) {
+                return 0;
+            }
+            let have = fs::metadata(part_path(&target)).map_or(0, |m| m.len());
+            file.size.saturating_sub(have)
+        })
+        .sum()
+}
+
 /// How often progress is reported.
 const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 
@@ -44,6 +91,12 @@ pub fn download_model(
     mut on_progress: impl FnMut(u64, u64),
 ) -> Result<()> {
     fs::create_dir_all(dir).with_context(|| format!("could not create {}", dir.display()))?;
+    if let Some(free) = free_bytes(dir) {
+        let needed = remaining(model, dir) + SPARE_BYTES;
+        if needed > free {
+            return Err(NoSpace { short: needed - free }.into());
+        }
+    }
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(20))
         // For the blocking client this limits each read or write, not the
@@ -350,6 +403,7 @@ mod tests {
             ram_mb: 1,
             default: false,
             note: None,
+            thinking: false,
             files: vec![ModelFile {
                 name: "model.bin".into(),
                 url: url.into(),
@@ -369,6 +423,35 @@ mod tests {
 
     fn body(len: usize) -> Vec<u8> {
         (0..len).map(|i| (i * 31 % 251) as u8).collect()
+    }
+
+    #[test]
+    fn a_model_bigger_than_the_free_space_is_refused_before_starting() {
+        let dir = temp_dir("space");
+        fs::create_dir_all(&dir).unwrap();
+        let free = free_bytes(&dir).unwrap();
+        assert!(free > 0);
+        let mut model = model_for("http://127.0.0.1:9/never", b"x");
+        model.files[0].size = free + 1;
+        let err = download_model(&model, &dir, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        let short = err.downcast_ref::<NoSpace>().unwrap().short;
+        assert!(short > SPARE_BYTES, "{short}");
+        assert!(!dir.join("model.bin.part").exists());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn remaining_counts_partial_files() {
+        let data = body(1000);
+        let model = model_for("http://127.0.0.1:9/never", &data);
+        let dir = temp_dir("remaining");
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(remaining(&model, &dir), 1000);
+        fs::write(dir.join("model.bin.part"), &data[..300]).unwrap();
+        assert_eq!(remaining(&model, &dir), 700);
+        fs::write(dir.join("model.bin"), &data).unwrap();
+        assert_eq!(remaining(&model, &dir), 0);
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

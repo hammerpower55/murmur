@@ -29,7 +29,7 @@ ringbuf = "0.5.3"
 anyhow = "1.0.104"
 log = "0.4.34"
 tauri-plugin-log = "2.10.1"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Variant", "Win32_System_Ole"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Variant", "Win32_System_Ole", "Win32_Storage_FileSystem"] }
 whisper-rs = { version = "0.16.0", features = ["log_backend"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 enigo = "0.6.1"

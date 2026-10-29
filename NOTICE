@@ -35,4 +35,5 @@ Moonshine Tiny Arabic, Chinese, Japanese, Korean, Ukrainian and Vietnamese
   (Moonshine AI), Moonshine AI Community License: free for research,
   non-commercial use, and organisations under US$1M annual revenue.
 SenseVoice Small (FunAudioLLM, Alibaba), FunASR Model License. ONNX export by the sherpa-onnx project (csukuangfj).
+Qwen3 4B Instruct 2507 (Qwen team, Alibaba Cloud), Apache 2.0. ONNX export by robinsmits.
 Qwen3 1.7B (Qwen team, Alibaba Cloud), Apache 2.0. ONNX export by onnx-community.

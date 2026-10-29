@@ -35,6 +35,8 @@ pub struct ModelsView {
     pub loading: Option<String>,
     pub downloads: HashMap<String, Progress>,
     pub roman_urdu: bool,
+    /// The word fixer in use, if one is installed.
+    pub fixer: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -83,7 +85,7 @@ impl ModelManager {
         fixer: Arc<Fixer>,
     ) -> Arc<Self> {
         let registry = Registry::new(models_dir);
-        fixer.set_model(registry.fixup_dir());
+        fixer.set_model(registry.fixup());
         Arc::new(Self {
             app,
             registry,
@@ -105,6 +107,7 @@ impl ModelManager {
             loading: self.host.loading(),
             downloads,
             roman_urdu: settings::current(&self.app).roman_urdu,
+            fixer: self.registry.fixup_id(),
         }
     }
 
@@ -240,7 +243,7 @@ impl ModelManager {
                 match result {
                     Ok(()) if !model.family.is_speech() => {
                         log::info!("downloaded {id}");
-                        me.fixer.set_model(me.registry.fixup_dir());
+                        me.fixer.set_model(me.registry.fixup());
                     }
                     Ok(()) => {
                         log::info!("downloaded {id}");
@@ -252,6 +255,11 @@ impl ModelManager {
                         }
                     }
                     Err(err) if is_cancelled(&err) => log::info!("download of {id} cancelled"),
+                    Err(err) if err.downcast_ref::<download::NoSpace>().is_some() => {
+                        let short = err.downcast_ref::<download::NoSpace>().map_or(0, |n| n.short);
+                        log::error!("download of {id} failed: {err:#}");
+                        me.error(&id, &format!("Free up {} of disk space to download this model.", gigabytes(short)));
+                    }
                     Err(err) => {
                         log::error!("download of {id} failed: {err:#}");
                         me.error(&id, "Download failed. Check your connection and try again.");
@@ -282,11 +290,17 @@ impl ModelManager {
             self.fixer.set_model(None);
         }
         let freed = self.registry.delete(id)?;
-        self.fixer.set_model(self.registry.fixup_dir());
+        self.fixer.set_model(self.registry.fixup());
         log::info!("deleted {id}, freed {} MB", freed / 1_000_000);
         self.changed();
         Ok(freed)
     }
+}
+
+/// Bytes as gigabytes for the user, rounded up to a tenth.
+fn gigabytes(bytes: u64) -> String {
+    let tenths = bytes.div_ceil(100_000_000).max(1);
+    format!("{}.{} GB", tenths / 10, tenths % 10)
 }
 
 #[cfg(test)]
@@ -301,5 +315,12 @@ mod tests {
         assert!(!prompt(Family::Whisper, "whisper-small-en-q8"));
         assert!(!prompt(Family::Moonshine, "moonshine-tiny"));
         assert!(options_for(Family::Whisper, "whisper-small", false).initial_prompt.is_none());
+    }
+
+    #[test]
+    fn gigabytes_round_up_to_a_tenth() {
+        assert_eq!(gigabytes(1), "0.1 GB");
+        assert_eq!(gigabytes(1_250_000_000), "1.3 GB");
+        assert_eq!(gigabytes(3_000_000_000), "3.0 GB");
     }
 }

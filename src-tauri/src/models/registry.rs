@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use super::catalog::{self, CatalogModel, Family};
 use super::download::file_complete;
+use crate::engine::fixer::FixupModel;
 
 pub const CUSTOM_DIR: &str = "custom";
 const CUSTOM_PREFIX: &str = "custom:";
@@ -102,12 +103,24 @@ impl Registry {
             .collect()
     }
 
-    /// The installed fix-up model's folder, if there is one.
-    pub fn fixup_dir(&self) -> Option<PathBuf> {
+    /// The word fixer in use: the first installed one in catalogue order,
+    /// which lists the strongest first.
+    pub fn fixup_id(&self) -> Option<String> {
         catalog::catalog()
             .into_iter()
             .find(|m| m.family == Family::Fixup && self.is_installed(m))
-            .map(|m| self.model_dir(&m.id))
+            .map(|m| m.id)
+    }
+
+    /// The word fixer in use, if one is installed.
+    pub fn fixup(&self) -> Option<FixupModel> {
+        catalog::catalog()
+            .into_iter()
+            .find(|m| m.family == Family::Fixup && self.is_installed(m))
+            .map(|m| FixupModel {
+                dir: self.model_dir(&m.id),
+                thinking: m.thinking,
+            })
     }
 
     fn custom_models(&self) -> Vec<ModelInfo> {

@@ -54,6 +54,11 @@ pub struct CatalogModel {
     pub default: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Word fixers: a hybrid model that thinks unless its chat prompt
+    /// opens with an empty think block (Qwen3 1.7B). Instruct only models
+    /// end their reply at once when given one.
+    #[serde(default, skip_serializing)]
+    pub thinking: bool,
     pub files: Vec<ModelFile>,
 }
 

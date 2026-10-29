@@ -15,8 +15,7 @@ use tauri::{AppHandle, Emitter};
 use crate::engine::fixer::Fixer;
 use crate::engine::llm::Llm;
 
-/// Qwen3 is told what it is and to keep it short; thinking is switched off
-/// by an empty think block, as the model card describes.
+/// The model is told what it is and to keep it short.
 const SYSTEM: &str = "You are a helpful assistant running offline on this computer inside Murmur, a voice dictation app. Answer briefly and plainly.";
 /// Longest reply, in tokens.
 const MAX_REPLY: usize = 512;
@@ -33,12 +32,18 @@ pub struct Message {
 }
 
 /// Qwen chat markup for `messages`, ending where the assistant's reply goes.
-pub fn prompt(messages: &[Message]) -> String {
+/// A `thinking` model (Qwen3 1.7B) gets an empty think block, which
+/// switches thinking off as its model card describes; an instruct only
+/// model (Qwen3 4B Instruct 2507) ends its reply at once when given one.
+pub fn prompt(messages: &[Message], thinking: bool) -> String {
     let mut p = format!("<|im_start|>system\n{SYSTEM}<|im_end|>\n");
     for m in messages {
         p.push_str(&format!("<|im_start|>{}\n{}<|im_end|>\n", m.role, m.content.trim()));
     }
-    p.push_str("<|im_start|>assistant\n<think>\n\n</think>\n\n");
+    p.push_str("<|im_start|>assistant\n");
+    if thinking {
+        p.push_str("<think>\n\n</think>\n\n");
+    }
     p
 }
 
@@ -68,6 +73,7 @@ impl Chat {
             bail!("Wait for the reply to finish.");
         }
         self.stop.store(false, Ordering::SeqCst);
+        let thinking = fixer.thinking();
         let (busy, stop) = (self.busy.clone(), self.stop.clone());
         let spawned = std::thread::Builder::new()
             .name("murmur-chat".into())
@@ -76,7 +82,7 @@ impl Chat {
                     let _ = app.emit("chat-loading", ());
                 }
                 let error = match fixer.model(LOAD_WAIT) {
-                    Some(llm) => reply(&app, &llm, messages, &stop).err().map(|err| {
+                    Some(llm) => reply(&app, &llm, messages, thinking, &stop).err().map(|err| {
                         log::error!("chat failed: {err:#}");
                         "Could not write a reply. Try again.".to_string()
                     }),
@@ -98,11 +104,11 @@ impl Chat {
     }
 }
 
-fn reply(app: &AppHandle, llm: &Llm, mut messages: Vec<Message>, stop: &AtomicBool) -> Result<()> {
-    let mut ids = llm.encode(&prompt(&messages))?;
+fn reply(app: &AppHandle, llm: &Llm, mut messages: Vec<Message>, thinking: bool, stop: &AtomicBool) -> Result<()> {
+    let mut ids = llm.encode(&prompt(&messages, thinking))?;
     while ids.len() > MAX_PROMPT && messages.len() > 1 {
         messages.remove(0);
-        ids = llm.encode(&prompt(&messages))?;
+        ids = llm.encode(&prompt(&messages, thinking))?;
     }
     llm.generate(&ids, MAX_REPLY, |text| {
         let _ = app.emit("chat-text", text);
@@ -124,10 +130,12 @@ mod tests {
 
     #[test]
     fn prompt_uses_qwen_markup_with_thinking_off() {
-        let p = prompt(&[msg("user", " Hi "), msg("assistant", "Hello."), msg("user", "How are you?")]);
+        let messages = [msg("user", " Hi "), msg("assistant", "Hello."), msg("user", "How are you?")];
+        let p = prompt(&messages, true);
         assert!(p.starts_with("<|im_start|>system\n"));
         assert!(p.contains("<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\nHello.<|im_end|>\n"));
         assert!(p.ends_with("<|im_start|>user\nHow are you?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"));
+        assert!(prompt(&messages, false).ends_with("How are you?<|im_end|>\n<|im_start|>assistant\n"));
     }
 }
 
@@ -143,12 +151,16 @@ mod eval {
     #[ignore = "needs the downloaded word fixer"]
     fn chat_reply() {
         onnx::use_vendored_runtime();
-        let llm = Llm::load(&onnx::installed_model_dir("qwen3-1.7b-int4"), default_threads()).unwrap();
+        let id = std::env::var("MURMUR_FIXUP_ID").unwrap_or_else(|_| "qwen3-4b-instruct-int4".into());
+        let thinking = crate::models::catalog::catalog().into_iter().any(|m| m.id == id && m.thinking);
+        let llm = Llm::load(&onnx::installed_model_dir(&id), default_threads()).unwrap();
+        // A greeting once ended the 4B's reply at once (see `prompt`).
         for question in [
+            "hey",
             "In one sentence, what is Monopoly?",
             "Fix the misheard word: I want dance cards to be something else in the monopoly game.",
         ] {
-            let ids = llm.encode(&prompt(&[Message { role: "user".into(), content: question.into() }])).unwrap();
+            let ids = llm.encode(&prompt(&[Message { role: "user".into(), content: question.into() }], thinking)).unwrap();
             let started = std::time::Instant::now();
             let mut tokens = 0;
             let text = llm.generate(&ids, 120, |_| {

@@ -42,7 +42,7 @@ interface Props {
   onDelete: () => void;
   /** Onboarding shows a lone card without the delete action. */
   compact?: boolean;
-  /** The word fixer: whether it is switched on. */
+  /** The word fixer: whether it is switched on and this is the one in use. */
   on?: boolean;
 }
 

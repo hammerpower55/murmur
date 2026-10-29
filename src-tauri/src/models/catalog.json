@@ -581,14 +581,45 @@
       ]
     },
     {
+      "id": "qwen3-4b-instruct-int4",
+      "name": "Qwen3 4B Instruct",
+      "family": "fixup",
+      "accuracy": 0,
+      "speed": 0,
+      "languages": ["*"],
+      "languages_label": "Smartest, for PCs with 16 GB of memory or more",
+      "ram_mb": 2500,
+      "files": [
+        {
+          "name": "model.onnx",
+          "url": "https://huggingface.co/robinsmits/qwen3-4b-instruct-2507-onnx-int4/resolve/97d8690faf0cad28279dd10334a67c79f673a57f/model.onnx",
+          "size": 424250,
+          "sha256": "7d8cde77a77dc9743be3050a2a7553d70f6488028fb7d94c0524e6869de656c0"
+        },
+        {
+          "name": "model.onnx.data",
+          "url": "https://huggingface.co/robinsmits/qwen3-4b-instruct-2507-onnx-int4/resolve/97d8690faf0cad28279dd10334a67c79f673a57f/model.onnx.data",
+          "size": 2551480320,
+          "sha256": "0562b2ddc15a9b812496bb709f72402c44fc8fbf2e8bc9f8f8ec25864a1411be"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/robinsmits/qwen3-4b-instruct-2507-onnx-int4/resolve/97d8690faf0cad28279dd10334a67c79f673a57f/tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        }
+      ]
+    },
+    {
       "id": "qwen3-1.7b-int4",
       "name": "Qwen3 1.7B",
       "family": "fixup",
       "accuracy": 0,
       "speed": 0,
       "languages": ["*"],
-      "languages_label": "Uses your dictionary and the text on screen",
+      "languages_label": "Lighter, for PCs with 8 GB of memory",
       "ram_mb": 2100,
+      "thinking": true,
       "files": [
         {
           "name": "model.onnx",
