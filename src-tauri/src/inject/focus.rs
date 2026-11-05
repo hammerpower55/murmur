@@ -1,19 +1,24 @@
 //! The window that will receive the paste, and whether it is a terminal.
 
+#[cfg(windows)]
 use windows::core::PWSTR;
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HWND};
+#[cfg(windows)]
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FocusedApp {
-    /// Executable file name, e.g. "Code.exe". Empty if it could not be read.
+    /// Executable file name, e.g. "Code.exe". On macOS the app bundle's
+    /// name, e.g. "Slack.app". Empty if it could not be read.
     pub exe: String,
-    /// Full path of the executable, for its icon.
+    /// Full path of the executable (the .app bundle on macOS), for its icon.
     pub exe_path: String,
     pub title: String,
 }
@@ -31,6 +36,15 @@ const TERMINAL_EXES: &[&str] = &[
     "alacritty.exe",
     "wezterm-gui.exe",
     "wezterm.exe",
+    // macOS: terminals are only told apart so their text is never read.
+    "terminal.app",
+    "iterm.app",
+    "warp.app",
+    "alacritty.app",
+    "wezterm.app",
+    "kitty.app",
+    "ghostty.app",
+    "hyper.app",
 ];
 
 /// Only used when the executable could not be read (for example an
@@ -55,6 +69,36 @@ impl FocusedApp {
     }
 }
 
+/// The frontmost app and its focused window's title (the title needs the
+/// Accessibility permission and is empty without it).
+#[cfg(target_os = "macos")]
+pub fn foreground() -> FocusedApp {
+    use objc2_app_kit::NSWorkspace;
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let Some(app) = workspace.frontmostApplication() else {
+        return FocusedApp::default();
+    };
+    let bundle = app.bundleURL().and_then(|url| url.path()).map(|p| p.to_string());
+    let exe_path = bundle.unwrap_or_default();
+    let exe = exe_path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let title = crate::macos::Element::application(app.processIdentifier())
+        .and_then(|a| a.element("AXFocusedWindow"))
+        .and_then(|w| w.string("AXTitle"))
+        .unwrap_or_default();
+    FocusedApp {
+        exe,
+        exe_path,
+        title,
+    }
+}
+
+#[cfg(windows)]
 pub fn foreground() -> FocusedApp {
     // SAFETY: plain Win32 queries on the current foreground window; every
     // buffer is sized and the process handle is closed.
@@ -72,12 +116,14 @@ pub fn foreground() -> FocusedApp {
     }
 }
 
+#[cfg(windows)]
 unsafe fn window_title(hwnd: HWND) -> String {
     let mut buf = [0u16; 512];
     let len = unsafe { GetWindowTextW(hwnd, &mut buf) };
     String::from_utf16_lossy(&buf[..len.max(0) as usize])
 }
 
+#[cfg(windows)]
 unsafe fn exe_path(hwnd: HWND) -> Option<String> {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
@@ -122,6 +168,9 @@ mod tests {
         assert!(app("mintty.exe", "").is_terminal());
         assert!(app("alacritty.exe", "").is_terminal());
         assert!(app("wezterm-gui.exe", "").is_terminal());
+        assert!(app("Terminal.app", "").is_terminal());
+        assert!(app("iTerm.app", "").is_terminal());
+        assert!(!app("Visual Studio Code.app", "zsh").is_terminal());
     }
 
     #[test]

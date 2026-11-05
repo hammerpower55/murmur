@@ -1,17 +1,24 @@
 //! App icons for History rows. The first dictation into an app extracts its
-//! icon from the .exe, and it is saved once as a PNG under
-//! %APPDATA%\Murmur\icons\<exe>.png. History reads the saved file.
+//! icon from the .exe (the .app bundle on macOS), and it is saved once as a
+//! PNG under %APPDATA%\Murmur\icons\<exe>.png. History reads the saved
+//! file.
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+#[cfg(windows)]
+use anyhow::bail;
+use anyhow::{Context, Result};
 use base64::Engine;
+#[cfg(windows)]
 use windows::core::HSTRING;
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
     BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
 };
+#[cfg(windows)]
 use windows::Win32::UI::Shell::ExtractIconExW;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 
 /// File name for an app's icon: the exe name, lowercased, made safe.
@@ -52,7 +59,29 @@ pub fn data_url(dir: &Path, exe_name: &str) -> Option<String> {
     ))
 }
 
+/// The app bundle's icon (what Finder shows) as a 32 point PNG.
+#[cfg(target_os = "macos")]
+fn extract_png(app_path: &str) -> Result<Vec<u8>> {
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+    use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+
+    let icon = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(app_path));
+    let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(32.0, 32.0));
+    // SAFETY: `rect` outlives the call; no context or hints.
+    let image = unsafe { icon.CGImageForProposedRect_context_hints(&mut rect, None, None) }
+        .with_context(|| format!("no icon for {app_path}"))?;
+    let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &image);
+    // SAFETY: an empty property dictionary is valid for PNG.
+    let png = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }
+    .context("could not encode the icon")?;
+    Ok(png.to_vec())
+}
+
 /// Extracts the exe's large icon as a 32x32 PNG with transparency.
+#[cfg(windows)]
 fn extract_png(exe_path: &str) -> Result<Vec<u8>> {
     let mut icon = HICON::default();
     // SAFETY: Win32 calls with valid out pointers; every handle created
@@ -68,6 +97,7 @@ fn extract_png(exe_path: &str) -> Result<Vec<u8>> {
     }
 }
 
+#[cfg(windows)]
 unsafe fn icon_to_png(icon: HICON) -> Result<Vec<u8>> {
     let mut info = ICONINFO::default();
     unsafe { GetIconInfo(icon, &mut info) }.context("could not read the icon")?;
@@ -80,6 +110,7 @@ unsafe fn icon_to_png(icon: HICON) -> Result<Vec<u8>> {
 }
 
 /// Reads a bitmap as top down 32 bit BGRA.
+#[cfg(windows)]
 unsafe fn read_bgra(bitmap: HBITMAP, width: i32, height: i32) -> Result<Vec<u8>> {
     let mut header = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
@@ -113,6 +144,7 @@ unsafe fn read_bgra(bitmap: HBITMAP, width: i32, height: i32) -> Result<Vec<u8>>
     Ok(pixels)
 }
 
+#[cfg(windows)]
 unsafe fn bitmaps_to_png(color: HBITMAP, mask: HBITMAP) -> Result<Vec<u8>> {
     if color.is_invalid() {
         bail!("monochrome icons are not supported");
@@ -146,6 +178,7 @@ unsafe fn bitmaps_to_png(color: HBITMAP, mask: HBITMAP) -> Result<Vec<u8>> {
     encode_png(&rgba, w as u32, h as u32)
 }
 
+#[cfg(windows)]
 fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, width, height);
@@ -174,11 +207,15 @@ mod tests {
         assert_eq!(icon_file(dir, "..\\x"), None);
     }
 
+    /// An app every install of the OS has.
+    #[cfg(windows)]
+    const SYSTEM_APP: (&str, &str) = ("explorer.exe", "C:\\Windows\\explorer.exe");
+    #[cfg(target_os = "macos")]
+    const SYSTEM_APP: (&str, &str) = ("Finder.app", "/System/Library/CoreServices/Finder.app");
+
     #[test]
     fn extracts_a_real_icon() {
-        let png = extract_png("C:\\Windows\\System32\\notepad.exe")
-            .or_else(|_| extract_png("C:\\Windows\\explorer.exe"))
-            .unwrap();
+        let png = extract_png(SYSTEM_APP.1).unwrap();
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
         assert!(png.len() > 100);
     }
@@ -187,8 +224,8 @@ mod tests {
     fn saves_once_and_serves_a_data_url() {
         let dir = std::env::temp_dir().join(format!("murmur-icons-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
-        ensure_saved(&dir, "explorer.exe", "C:\\Windows\\explorer.exe").unwrap();
-        let url = data_url(&dir, "Explorer.exe").unwrap();
+        ensure_saved(&dir, SYSTEM_APP.0, SYSTEM_APP.1).unwrap();
+        let url = data_url(&dir, &SYSTEM_APP.0.to_uppercase()).unwrap();
         assert!(url.starts_with("data:image/png;base64,iVBOR"));
         assert!(data_url(&dir, "missing.exe").is_none());
         std::fs::remove_dir_all(&dir).ok();

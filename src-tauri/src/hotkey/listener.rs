@@ -11,22 +11,40 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[cfg(windows)]
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+#[cfg(windows)]
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
     VK_RSHIFT, VK_RWIN, VK_SPACE,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION,
     KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+#[cfg(target_os = "macos")]
+pub use super::vk_mac::{
+    VIRTUAL_KEY, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
+    VK_RSHIFT, VK_RWIN, VK_SPACE,
+};
+
+/// On macOS the event tap (listener_mac.rs) takes the place of the hook.
+#[cfg(target_os = "macos")]
+#[path = "listener_mac.rs"]
+mod mac;
+#[cfg(target_os = "macos")]
+pub use mac::spawn;
+
 pub type Key = VIRTUAL_KEY;
 
 /// Unassigned virtual key. Sent while Win or Alt is held so releasing them
 /// does not open the Start menu or focus a menu bar.
+#[cfg(windows)]
 const MASK_KEY: Key = VIRTUAL_KEY(0xE8);
 /// Tags input Murmur injects so the hook can ignore it.
 pub(crate) const MURMUR_INPUT_TAG: usize = 0x4D55_524D; // "MURM"
@@ -310,10 +328,12 @@ impl Hook {
     }
 }
 
+// On macOS this is the event tap's state, on its own thread like the hook.
 thread_local! {
     static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
 }
 
+#[cfg(windows)]
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         // SAFETY: for WH_KEYBOARD_LL with HC_ACTION, lparam points to a
@@ -342,6 +362,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 
 /// Starts the hook on its own thread with its own message loop. `recording`
 /// tells the hook whether Escape should be captured (only while recording).
+#[cfg(windows)]
 pub fn spawn(
     main: Combo,
     toggle: Option<Combo>,
@@ -405,6 +426,7 @@ pub fn spawn(
 
 /// Injected from another thread: the hook must return quickly and must not
 /// inject input from inside its own proc.
+#[cfg(windows)]
 fn send_mask_key() {
     std::thread::spawn(|| {
         let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
@@ -425,9 +447,17 @@ fn send_mask_key() {
     });
 }
 
+/// macOS has no Start menu, and Command or Option pressed alone does
+/// nothing, so there is nothing to mask.
+#[cfg(target_os = "macos")]
+fn send_mask_key() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use super::super::vk_mac::{VK_A, VK_C, VK_D};
+    #[cfg(windows)]
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_C, VK_D};
 
     fn ctrl_win() -> ComboTracker {

@@ -1,6 +1,8 @@
 // Labels for hotkey key names as stored in settings.json (see
 // src-tauri/src/hotkey/keys.rs).
 
+import { IS_MAC } from "./platform";
+
 const LABELS: Record<string, string> = {
   ctrl: "Ctrl",
   alt: "Alt",
@@ -29,7 +31,20 @@ const LABELS: Record<string, string> = {
   numlock: "Num Lock",
 };
 
+/** What a Mac keyboard calls the modifiers stored as ctrl, alt and win. */
+const MAC_LABELS: Record<string, string> = {
+  ctrl: "Control",
+  alt: "Option",
+  win: "Cmd",
+};
+
 export function keyLabel(name: string): string {
+  return keyLabelOn(name, IS_MAC);
+}
+
+/** keyLabel for a given platform. */
+export function keyLabelOn(name: string, mac: boolean): string {
+  if (mac && MAC_LABELS[name]) return MAC_LABELS[name];
   if (LABELS[name]) return LABELS[name];
   if (/^[a-z0-9]$/.test(name)) return name.toUpperCase();
   if (/^f\d{1,2}$/.test(name)) return name.toUpperCase();

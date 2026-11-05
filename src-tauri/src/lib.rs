@@ -6,6 +6,8 @@ mod dictation;
 mod engine;
 mod hotkey;
 mod inject;
+#[cfg(target_os = "macos")]
+mod macos;
 mod models;
 mod overlay;
 mod paths;
@@ -30,8 +32,32 @@ use text::store::TextStore;
 /// Launch at login starts Murmur with this flag: tray only, no window.
 const HIDDEN_FLAG: &str = "--hidden";
 
+/// libonnxruntime ships in the app bundle's Frameworks folder (bundle >
+/// macOS > frameworks in tauri.macos.conf.json), beside Resources. Dev
+/// builds fall back to the copy scripts/fetch_onnxruntime.sh puts in vendor/.
+#[cfg(target_os = "macos")]
+fn onnxruntime_path(app: &AppHandle) -> PathBuf {
+    const LIB: &str = "libonnxruntime.1.31.0.dylib";
+    let bundled = app
+        .path()
+        .resource_dir()
+        .ok()
+        .and_then(|dir| dir.parent().map(|contents| contents.join("Frameworks").join(LIB)))
+        .filter(|p| p.is_file());
+    #[cfg(debug_assertions)]
+    let bundled = bundled.or_else(|| {
+        Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("vendor/onnxruntime-osx-arm64-1.31.0/lib")
+                .join(LIB),
+        )
+    });
+    bundled.unwrap_or_else(|| PathBuf::from(LIB))
+}
+
 /// onnxruntime.dll ships next to the app as a bundle resource. Dev builds
 /// fall back to the copy scripts/fetch_onnxruntime.ps1 puts in vendor/.
+#[cfg(windows)]
 fn onnxruntime_path(app: &AppHandle) -> PathBuf {
     let bundled = app
         .path()
@@ -50,7 +76,9 @@ fn onnxruntime_path(app: &AppHandle) -> PathBuf {
 }
 
 /// Qualcomm's QNN plugin ships in a qnn folder next to the app. Dev builds
-/// fall back to the copy scripts/fetch_qnn.ps1 puts in vendor/.
+/// fall back to the copy scripts/fetch_qnn.ps1 puts in vendor/. Windows
+/// only: on macOS the folder is never there, so no NPU is found and NPU
+/// models are never listed.
 fn qnn_dir(app: &AppHandle) -> PathBuf {
     let bundled = app
         .path()
@@ -65,9 +93,21 @@ fn qnn_dir(app: &AppHandle) -> PathBuf {
     bundled.unwrap_or_else(|| PathBuf::from("qnn"))
 }
 
+/// Clicking the Dock icon while the window is hidden in the menu bar
+/// brings it back.
+#[cfg(target_os = "macos")]
+fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
+    if let tauri::RunEvent::Reopen { .. } = event {
+        tray::show_main(app);
+    }
+}
+
+#[cfg(windows)]
+fn on_run_event(_app: &AppHandle, _event: tauri::RunEvent) {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let result = tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .clear_targets()
@@ -211,7 +251,9 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
+
+    let result = app.map(|app| app.run(on_run_event));
 
     if let Err(err) = result {
         eprintln!("failed to start: {err}");

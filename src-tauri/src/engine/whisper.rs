@@ -66,7 +66,8 @@ impl SpeechEngine for WhisperEngine {
             .to_str()
             .ok_or_else(|| anyhow!("model path is not valid UTF-8"))?;
         let mut params = WhisperContextParameters::default();
-        params.use_gpu(false);
+        // CPU with NEON on Windows; Metal on Apple Silicon Macs.
+        params.use_gpu(cfg!(target_os = "macos"));
         let context = WhisperContext::new_with_params(path, params)
             .with_context(|| format!("could not load {}", model_path.display()))?;
         let state = context

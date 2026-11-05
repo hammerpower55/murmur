@@ -14,6 +14,7 @@ import { api, errorText, events, type OverlayPosition, type Settings as Prefs } 
 import { SOURCE_URL } from "../lib/app";
 import { hotkeyLabel, keyLabel, recordHotkey } from "../lib/keys";
 import { languagesFor } from "../lib/languages";
+import { IS_MAC } from "../lib/platform";
 import { useInsights } from "../store/insights";
 import { useModels } from "../store/models";
 import { useSettings } from "../store/settings";
@@ -248,7 +249,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             value={s.microphone ?? ""}
             onChange={(e) => set({ microphone: e.target.value || null })}
           >
-            <option value="">Windows default</option>
+            <option value="">{IS_MAC ? "System default" : "Windows default"}</option>
             {micMissing && <option value={s.microphone ?? ""}>{s.microphone} (not connected)</option>}
             {mics.map((m) => (
               <option key={m} value={m}>

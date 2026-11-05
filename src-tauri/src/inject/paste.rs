@@ -1,13 +1,18 @@
 //! Pastes text into the focused app through the clipboard: save the
-//! clipboard, write the text, send Ctrl+V (Ctrl+Shift+V in terminals), wait
-//! 120 ms, then put the old clipboard back.
+//! clipboard, write the text, send Ctrl+V (Ctrl+Shift+V in terminals;
+//! Command+V on macOS), wait 120 ms, then put the old clipboard back.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
-use arboard::{Clipboard, ImageData, SetExtWindows};
+#[cfg(target_os = "macos")]
+use arboard::SetExtApple;
+#[cfg(windows)]
+use arboard::SetExtWindows;
+use arboard::{Clipboard, ImageData};
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
@@ -21,7 +26,13 @@ const PASTE_SETTLE: Duration = Duration::from_millis(120);
 /// would turn Ctrl+V into a Windows shortcut.
 const MODIFIER_WAIT: Duration = Duration::from_secs(1);
 /// Virtual key code for V, independent of keyboard layout.
+#[cfg(windows)]
 const VK_V: u32 = 0x56;
+/// Mac key code for the V position (kVK_ANSI_V). Looking the key up by
+/// character needs the main thread, and apps match Command+V by position
+/// on the common layouts.
+#[cfg(target_os = "macos")]
+const KVK_V: u32 = 0x09;
 
 pub fn paste(text: &str, target: &FocusedApp) -> Result<()> {
     let mut clipboard =
@@ -93,6 +104,12 @@ fn wait_for_modifiers_released() {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn any_modifier_down() -> bool {
+    crate::macos::held_modifiers() != 0
+}
+
+#[cfg(windows)]
 fn any_modifier_down() -> bool {
     [VK_LWIN, VK_RWIN, VK_CONTROL, VK_SHIFT, VK_MENU]
         .iter()
@@ -103,6 +120,25 @@ fn any_modifier_down() -> bool {
         })
 }
 
+/// Command+V; macOS terminals paste with it too.
+#[cfg(target_os = "macos")]
+fn send_paste_keys(_terminal: bool) -> Result<()> {
+    let settings = Settings {
+        // Tagged so Murmur's own event tap ignores these keys.
+        event_source_user_data: Some(MURMUR_INPUT_TAG as i64),
+        // The hotkey thread asks for the Accessibility permission.
+        open_prompt_to_get_permissions: false,
+        ..Settings::default()
+    };
+    let mut enigo = Enigo::new(&settings).context("could not start key input")?;
+    let mut result = enigo.key(Key::Meta, Direction::Press);
+    result = result.and(enigo.key(Key::Other(KVK_V), Direction::Click));
+    // Always release, even if a press failed.
+    let released = enigo.key(Key::Meta, Direction::Release);
+    result.and(released).context("could not send the paste keys")
+}
+
+#[cfg(windows)]
 fn send_paste_keys(terminal: bool) -> Result<()> {
     let settings = Settings {
         // Tagged so Murmur's own hotkey hook ignores these keys.

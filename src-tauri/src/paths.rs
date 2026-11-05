@@ -1,4 +1,5 @@
-//! Where Murmur keeps user data: %APPDATA%\<productName>.
+//! Where Murmur keeps user data: %APPDATA%\<productName> on Windows,
+//! ~/Library/Application Support/<productName> on macOS.
 
 use std::path::PathBuf;
 
@@ -9,7 +10,18 @@ pub fn data_dir(app: &AppHandle) -> Result<PathBuf> {
     data_dir_named(&app.package_info().name)
 }
 
+/// Same as `data_dir` for code that has no AppHandle, such as tests. On
+/// macOS: ~/Library/Application Support/<productName>.
+#[cfg(target_os = "macos")]
+pub fn data_dir_named(app_name: &str) -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    Ok(PathBuf::from(home)
+        .join("Library/Application Support")
+        .join(app_name))
+}
+
 /// Same as `data_dir` for code that has no AppHandle, such as tests.
+#[cfg(windows)]
 pub fn data_dir_named(app_name: &str) -> Result<PathBuf> {
     let appdata = std::env::var_os("APPDATA").context("APPDATA is not set")?;
     Ok(PathBuf::from(appdata).join(app_name))

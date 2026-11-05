@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "shortDescription": "Offline voice dictation for Apple Silicon Macs",
+    "resources": {
+      "vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll": null,
+      "vendor/onnxruntime-qnn-2.7.0/onnxruntime_providers_qnn.dll": null,
+      "vendor/onnxruntime-qnn-2.7.0/QnnHtp.dll": null,
+      "vendor/onnxruntime-qnn-2.7.0/QnnHtpPrepare.dll": null,
+      "vendor/onnxruntime-qnn-2.7.0/QnnSystem.dll": null,
+      "vendor/onnxruntime-qnn-2.7.0/QnnHtpV73Stub.dll": null,
+      "vendor/onnxruntime-qnn-2.7.0/libQnnHtpV73Skel.so": null,
+      "vendor/onnxruntime-qnn-2.7.0/libqnnhtpv73.cat": null,
+      "vendor/onnxruntime-qnn-2.7.0/LICENSE": null,
+      "vendor/onnxruntime-qnn-2.7.0/Qualcomm_LICENSE.pdf": null,
+      "vendor/onnxruntime-qnn-2.7.0/ThirdPartyNotices.txt": null,
+      "vendor/onnxruntime-qnn-2.7.0/Privacy.md": null
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "frameworks": [
+        "vendor/onnxruntime-osx-arm64-1.31.0/lib/libonnxruntime.1.31.0.dylib"
+      ],
+      "signingIdentity": "-",
+      "infoPlist": "Info.plist"
+    }
+  }
+}

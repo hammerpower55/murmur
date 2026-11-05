@@ -69,12 +69,25 @@ pub fn finish_onboarding(app: AppHandle) -> Result<(), String> {
     settings::set_onboarded(&app).map_err(line)
 }
 
+#[cfg(windows)]
+const MIC_BLOCKED: &str =
+    "Murmur cannot use the microphone. Allow desktop apps to use it in Windows settings.";
+#[cfg(target_os = "macos")]
+const MIC_BLOCKED: &str =
+    "The microphone is blocked. Allow it in System Settings under Privacy and Security.";
+
+#[cfg(windows)]
+const MIC_SETTINGS_URL: &str = "ms-settings:privacy-microphone";
+#[cfg(target_os = "macos")]
+const MIC_SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+
 /// Opens the default microphone briefly. Fails when there is no microphone
-/// or Windows privacy settings block desktop apps from using it.
+/// or the system's privacy settings block Murmur from using it (on macOS the
+/// first try shows the system's permission prompt).
 #[tauri::command]
 pub fn check_microphone() -> Result<(), String> {
-    let blocked =
-        "Murmur cannot use the microphone. Allow desktop apps to use it in Windows settings.";
+    let blocked = MIC_BLOCKED;
     let device = cpal::default_host()
         .default_input_device()
         .ok_or("Connect a microphone to start dictating.")?;
@@ -89,7 +102,7 @@ pub fn check_microphone() -> Result<(), String> {
 #[tauri::command]
 pub fn open_microphone_settings(app: AppHandle) -> Result<(), String> {
     app.opener()
-        .open_url("ms-settings:privacy-microphone", None::<&str>)
+        .open_url(MIC_SETTINGS_URL, None::<&str>)
         .map_err(|e| e.to_string())
 }
 
@@ -257,6 +270,11 @@ pub fn open_data_folder(app: AppHandle) -> Result<(), String> {
         .map_err(|_| "Could not open the data folder.".to_string())
 }
 
+#[cfg(windows)]
+const TEXT_VIEWER: &str = "notepad.exe";
+#[cfg(target_os = "macos")]
+const TEXT_VIEWER: &str = "TextEdit";
+
 /// NOTICE ships next to the app; dev builds read the repository copy.
 #[tauri::command]
 pub fn open_licences(app: AppHandle) -> Result<(), String> {
@@ -271,7 +289,7 @@ pub fn open_licences(app: AppHandle) -> Result<(), String> {
         .or_else(|| Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../NOTICE")));
     let path = bundled.ok_or("The licence file is missing.")?;
     app.opener()
-        .open_path(path.to_string_lossy(), Some("notepad.exe"))
+        .open_path(path.to_string_lossy(), Some(TEXT_VIEWER))
         .map_err(|_| "Could not open the licence file.".to_string())
 }
 

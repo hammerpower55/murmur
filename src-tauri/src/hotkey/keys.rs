@@ -3,7 +3,10 @@
 //! without a friendly name are stored as "vk:" plus their hex code.
 
 use anyhow::{bail, Result};
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
+#[cfg(target_os = "macos")]
+use super::vk_mac::VIRTUAL_KEY;
 
 use super::listener::{Combo, Key};
 
@@ -37,6 +40,11 @@ const NAMED: [(&str, u16); 21] = [
     ("printscreen", 0x2C),
     ("numlock", 0x90),
 ];
+
+#[cfg(windows)]
+const NEEDS_MODIFIER: &str = "Add Ctrl, Alt, Shift or Win, or use a function key.";
+#[cfg(target_os = "macos")]
+const NEEDS_MODIFIER: &str = "Add Control, Option, Shift or Command, or use a function key.";
 
 fn is_modifier(name: &str) -> bool {
     MODIFIERS.iter().any(|(n, _)| *n == name)
@@ -143,7 +151,7 @@ pub fn validate_hotkey(names: &[String]) -> Result<()> {
             || n == "scrolllock"
     };
     if modifiers == 0 && !names.iter().all(function_keys) {
-        bail!("Add Ctrl, Alt, Shift or Win, or use a function key.");
+        bail!(NEEDS_MODIFIER);
     }
     if modifiers == 1 && names.len() == 1 {
         bail!("Add a second key so the modifier still works on its own.");

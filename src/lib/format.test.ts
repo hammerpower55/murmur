@@ -71,6 +71,7 @@ describe("formatDuration", () => {
 describe("appLabel and plural", () => {
   it("drops .exe and handles unknown apps", () => {
     expect(appLabel("Code.exe")).toBe("Code");
+    expect(appLabel("Slack.app")).toBe("Slack");
     expect(appLabel(null)).toBe("Unknown app");
   });
   it("pluralises with thousands separators", () => {

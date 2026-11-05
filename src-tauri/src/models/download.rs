@@ -51,7 +51,22 @@ impl std::error::Error for NoSpace {}
 /// Kept free after a download, so the drive is never filled to the brim.
 const SPARE_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Bytes free for this user on the volume holding `dir`.
+#[cfg(target_os = "macos")]
+fn free_bytes(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    // SAFETY: `path` is NUL terminated and `stats` is a valid out pointer.
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    Some(stats.f_bavail as u64 * stats.f_frsize as u64)
+}
+
 /// Bytes free for this user on the drive holding `dir`.
+#[cfg(windows)]
 fn free_bytes(dir: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;

@@ -58,10 +58,10 @@ export function formatDuration(ms: number): string {
   return s === 0 ? `${m} min` : `${m} min ${s} s`;
 }
 
-/** "Code.exe" to "Code". */
+/** "Code.exe" to "Code", "Slack.app" to "Slack". */
 export function appLabel(appName: string | null): string {
   if (!appName) return "Unknown app";
-  return appName.replace(/\.exe$/i, "");
+  return appName.replace(/\.(exe|app)$/i, "");
 }
 
 export function plural(n: number, one: string, many: string): string {

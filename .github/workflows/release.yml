@@ -1,17 +1,29 @@
 # Builds the ARM64 installer and portable zip on a native Windows ARM64
-# runner and attaches both to a GitHub release when a v* tag is pushed.
+# runner, and the Apple Silicon disk image on a native arm64 macOS runner,
+# and attaches them to a GitHub release when a v* tag is pushed.
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
+# Run it by hand (Actions > Release > Run workflow, or
+# `gh workflow run release.yml -f platforms=macos`) to build and test without
+# releasing; the builds are kept as workflow artifacts.
+#
 # Every downloaded tool is pinned and hash checked. Nothing here runs under
-# x64 emulation: LLVM and Ninja are their ARM64 builds, and the job fails if
-# any shipped binary is not ARM64.
+# x64 emulation: LLVM and Ninja are their ARM64 builds, and the jobs fail if
+# any shipped binary is not ARM64 (arm64 on macOS).
 
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which builds to run
+        type: choice
+        options: [both, windows, macos]
+        default: both
 
 permissions:
   contents: write
@@ -24,6 +36,7 @@ env:
 
 jobs:
   release:
+    if: github.event_name == 'push' || inputs.platforms != 'macos'
     runs-on: windows-11-arm
     defaults:
       run:
@@ -99,6 +112,7 @@ jobs:
           ./scripts/verify_arm64.ps1 $payload
 
       - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -109,3 +123,84 @@ jobs:
             gh release create $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --generate-notes
           }
           gh release upload $env:GITHUB_REF_NAME $files.FullName --clobber
+
+  macos:
+    if: github.event_name == 'push' || inputs.platforms != 'windows'
+    # macos-14 runs on Apple Silicon (M1): native arm64, no Rosetta.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust for aarch64-apple-darwin
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
+          rustup default stable
+          rustc -vV
+          test "$(uname -m)" = arm64
+
+      # macOS minutes cost more; keep compiled dependencies between runs.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: aarch64-apple-darwin
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # .cargo/config.toml pins Windows ARM64 and clang-cl; these override it.
+      - name: Build environment
+        run: |
+          source scripts/macos_env.sh
+          for name in CARGO_BUILD_TARGET CMAKE_GENERATOR CMAKE_C_COMPILER CMAKE_CXX_COMPILER MACOSX_DEPLOYMENT_TARGET LIBCLANG_PATH; do
+            echo "$name=${!name}" >> "$GITHUB_ENV"
+          done
+          cat "$GITHUB_ENV"
+
+      - name: ONNX Runtime (arm64)
+        run: bash scripts/fetch_onnxruntime.sh
+
+      - name: Frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Tests
+        run: |
+          pnpm test
+          cd src-tauri
+          cargo test --locked
+
+      - name: Build app and disk image
+        run: pnpm tauri build --target aarch64-apple-darwin --bundles app,dmg
+
+      - name: Check every binary is arm64
+        run: |
+          bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
+          bash scripts/verify_arm64.sh "$bundle/macos"
+          # What the disk image installs.
+          dmg="$(ls "$bundle"/dmg/*_aarch64.dmg)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "$dmg"
+          bash scripts/verify_arm64.sh "$RUNNER_TEMP/dmg"
+          hdiutil detach "$RUNNER_TEMP/dmg"
+          codesign --verify --deep --strict --verbose=2 "$bundle"/macos/*.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*_aarch64.dmg
+          retention-days: 14
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*_aarch64.dmg)"
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes || true
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber

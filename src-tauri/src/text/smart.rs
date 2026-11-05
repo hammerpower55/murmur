@@ -19,12 +19,22 @@ pub enum AppKind {
     Other,
 }
 
-const EMAIL_APPS: &[&str] = &["outlook.exe", "olk.exe", "hxoutlook.exe", "thunderbird.exe", "mailspring.exe", "mailclient.exe"];
+// Windows executables, then macOS app bundles (inject/focus.rs).
+const EMAIL_APPS: &[&str] = &[
+    "outlook.exe", "olk.exe", "hxoutlook.exe", "thunderbird.exe", "mailspring.exe", "mailclient.exe",
+    "mail.app", "microsoft outlook.app", "thunderbird.app", "mailspring.app", "spark.app", "airmail 5.app",
+];
 const CHAT_APPS: &[&str] = &[
     "slack.exe", "ms-teams.exe", "teams.exe", "whatsapp.exe", "discord.exe", "telegram.exe", "signal.exe",
     "messenger.exe", "zoom.exe",
+    "slack.app", "microsoft teams.app", "whatsapp.app", "discord.app", "telegram.app", "signal.app",
+    "messenger.app", "messages.app", "zoom.us.app",
 ];
-const BROWSERS: &[&str] = &["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "arc.exe"];
+const BROWSERS: &[&str] = &[
+    "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "arc.exe",
+    "google chrome.app", "safari.app", "microsoft edge.app", "firefox.app", "brave browser.app", "opera.app",
+    "vivaldi.app", "arc.app",
+];
 const EMAIL_SITES: &[&str] = &["gmail", "outlook", "proton mail", "yahoo mail", "fastmail"];
 const CHAT_SITES: &[&str] = &["whatsapp", "slack", "discord", "messenger", "telegram", "microsoft teams"];
 
@@ -1069,5 +1079,8 @@ mod tests {
         assert_eq!(AppKind::detect("msedge.exe", "WhatsApp"), AppKind::Chat);
         assert_eq!(AppKind::detect("notepad.exe", "Gmail notes.txt"), AppKind::Other);
         assert_eq!(AppKind::detect("Code.exe", "slack.rs"), AppKind::Other);
+        assert_eq!(AppKind::detect("Slack.app", "general"), AppKind::Chat);
+        assert_eq!(AppKind::detect("Google Chrome.app", "Inbox - Gmail"), AppKind::Email);
+        assert_eq!(AppKind::detect("Mail.app", ""), AppKind::Email);
     }
 }

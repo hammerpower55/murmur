@@ -2,7 +2,7 @@
 
 # Murmur
 
-Free, open source, fully offline voice dictation for Windows on ARM64 (Snapdragon X).
+Free, open source, fully offline voice dictation for Windows on ARM64 (Snapdragon X) and Apple Silicon Macs.
 
 Hold a hotkey, speak, release, and clean text is pasted into whatever app has focus. Speech models run on your own machine. Nothing you say leaves it.
 
@@ -29,7 +29,7 @@ Hold a hotkey, speak, release, and clean text is pasted into whatever app has fo
 
 ## Install
 
-Windows 11 on ARM64 only. Every binary Murmur ships is native ARM64; nothing runs under x64 emulation.
+Windows 11 on ARM64, or a Mac with Apple Silicon (M1 or later) on macOS 14 or later. Every binary Murmur ships is native ARM64; nothing runs under x64 emulation or Rosetta.
 
 Download from the latest release:
 
@@ -39,6 +39,12 @@ Download from the latest release:
 On first launch Murmur checks the microphone and offers its default model, Whisper Large v3 Turbo (834 MB). Allow desktop apps to use the microphone in Windows Settings > Privacy & security > Microphone if it asks.
 
 The installer and uninstaller themselves are small 32 bit x86 programs, because NSIS has no ARM64 build, and so are the NSIS helpers they use while installing. Everything they install is ARM64.
+
+### macOS
+
+- `Murmur_<version>_aarch64.dmg`: open it and drag Murmur to Applications.
+
+The app is not notarised yet, so the first time, right click Murmur in Applications and choose Open. macOS then asks for two permissions: the microphone, and Accessibility (System Settings > Privacy & Security > Accessibility), which the hotkey, pasting and reading the text field need. The default hotkey is Control + Command. On a Mac, Whisper runs on the GPU through Metal; the NPU models are Windows only. Data lives in `~/Library/Application Support/Murmur` instead of `%APPDATA%\Murmur`.
 
 ## Models
 
@@ -80,7 +86,19 @@ powershell -ExecutionPolicy Bypass -File scripts/package_portable.ps1
 powershell -ExecutionPolicy Bypass -File scripts/verify_arm64.ps1 -AllowX86Installer src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis dist-release
 ```
 
-Pushing a `v*` tag runs `.github/workflows/release.yml` on a Windows ARM64 runner, which builds both and attaches them to a GitHub release.
+On a Mac (Apple Silicon, Xcode command line tools, CMake, Node and pnpm 9):
+
+```
+./scripts/fetch_onnxruntime.sh
+source scripts/macos_env.sh
+pnpm install
+pnpm tauri dev --target aarch64-apple-darwin
+pnpm tauri build --target aarch64-apple-darwin --bundles app,dmg
+```
+
+`scripts/macos_env.sh` overrides the Windows settings in `.cargo/config.toml`; source it in every shell you build from.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml` on a Windows ARM64 runner and an Apple Silicon macOS runner, which build the installer, the portable zip and the disk image and attach them to a GitHub release.
 
 Tests: `pnpm test` and `cargo test` in `src-tauri`. `cargo test fixture_wer -- --ignored --nocapture` measures word error rate on clips you record into `tests/audio/` (`references.tsv` lists the sentences; the recordings are not in the repository).
 

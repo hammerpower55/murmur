@@ -20,9 +20,9 @@ const QNN_BACKEND: &str = "QnnHtp.dll";
 static ENVIRONMENT: OnceLock<std::result::Result<ort::environment::Environment, String>> =
     OnceLock::new();
 
-/// Where onnxruntime.dll lives. Set once at startup, before any load. The
-/// DLL is loaded from this exact path so the older copy Windows keeps in
-/// System32 is never picked up.
+/// Where onnxruntime.dll (libonnxruntime.*.dylib on macOS) lives. Set once
+/// at startup, before any load. The DLL is loaded from this exact path so
+/// the older copy Windows keeps in System32 is never picked up.
 pub fn set_runtime_path(path: PathBuf) {
     let _ = RUNTIME_PATH.set(path);
 }
@@ -165,7 +165,10 @@ pub fn argmax(values: &[f32]) -> usize {
 #[cfg(test)]
 pub fn use_vendored_runtime() {
     let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor");
+    #[cfg(windows)]
     set_runtime_path(vendor.join("onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"));
+    #[cfg(target_os = "macos")]
+    set_runtime_path(vendor.join("onnxruntime-osx-arm64-1.31.0/lib/libonnxruntime.1.31.0.dylib"));
     set_qnn_dir(vendor.join("onnxruntime-qnn-2.7.0"));
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hotkeyLabel, hotkeySpoken, keyLabel, nameOfKey, orderKeys } from "./keys";
+import { hotkeyLabel, hotkeySpoken, keyLabel, keyLabelOn, nameOfKey, orderKeys } from "./keys";
 
 describe("nameOfKey", () => {
   it("names keys the way settings.json stores them (hotkey/keys.rs)", () => {
@@ -53,6 +53,14 @@ describe("keyLabel", () => {
     expect(keyLabel("f12")).toBe("F12");
     expect(keyLabel("num3")).toBe("Num 3");
     expect(keyLabel("vk:ba")).toBe("Key BA");
+  });
+
+  it("uses Mac names for the modifiers on a Mac", () => {
+    expect(keyLabelOn("win", true)).toBe("Cmd");
+    expect(keyLabelOn("alt", true)).toBe("Option");
+    expect(keyLabelOn("ctrl", true)).toBe("Control");
+    expect(keyLabelOn("shift", true)).toBe("Shift");
+    expect(keyLabelOn("win", false)).toBe("Win");
   });
 });
 
