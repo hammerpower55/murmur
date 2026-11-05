@@ -9,14 +9,11 @@
 
 use std::path::{Path, PathBuf};
 
-use super::moonshine::MoonshineEngine;
 use super::onnx;
-use super::parakeet::ParakeetEngine;
-use super::sensevoice::SenseVoiceEngine;
 use super::whisper::WhisperEngine;
 use super::{has_arabic_script, SpeechEngine};
 use crate::audio::resample;
-use crate::models::catalog::{self, Family};
+use crate::models::catalog;
 use crate::models::manager::options_for;
 use crate::models::registry::Registry;
 
@@ -115,13 +112,7 @@ fn fixture_wer() {
     let spec = Registry::new(models_dir).resolve(&id).unwrap();
     let opts = options_for(spec.family, &id, true);
     onnx::use_vendored_runtime();
-    let mut engine: Box<dyn SpeechEngine> = match spec.family {
-        Family::Whisper => Box::new(WhisperEngine::new()),
-        Family::Parakeet => Box::new(ParakeetEngine::new()),
-        Family::Moonshine => Box::new(MoonshineEngine::new()),
-        Family::Sensevoice => Box::new(SenseVoiceEngine::new()),
-        Family::Fixup => panic!("{id} is not a speech model"),
-    };
+    let mut engine = super::host::engine_for(&spec).unwrap();
     let loading = std::time::Instant::now();
     engine.load(&spec.path, &opts).unwrap();
     println!(

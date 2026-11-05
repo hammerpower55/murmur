@@ -1,5 +1,6 @@
-# Builds the portable zip from a release build: the app, ONNX Runtime, and
-# the licence files. Run after `pnpm tauri build`.
+# Builds the portable zip from a release build: the app, ONNX Runtime,
+# Qualcomm's QNN plugin (in qnn\ next to the exe, where the app looks for
+# it), and the licence files. Run after `pnpm tauri build`.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/package_portable.ps1
 #
@@ -13,9 +14,10 @@ $Name = $Conf.productName
 $Version = $Conf.version
 $Release = Join-Path $Root "src-tauri\target\aarch64-pc-windows-msvc\release"
 $Runtime = Join-Path $Root "src-tauri\vendor\onnxruntime-win-arm64-1.31.0\lib\onnxruntime.dll"
+$Qnn = Join-Path $Root "src-tauri\vendor\onnxruntime-qnn-2.7.0"
 
 $Exe = Join-Path $Release "murmur.exe"
-foreach ($required in $Exe, $Runtime) {
+foreach ($required in $Exe, $Runtime, $Qnn) {
     if (-not (Test-Path $required)) { throw "Missing $required. Build the release first." }
 }
 
@@ -26,6 +28,7 @@ New-Item -ItemType Directory -Force $Stage | Out-Null
 
 Copy-Item $Exe (Join-Path $Stage "$Name.exe")
 Copy-Item $Runtime $Stage
+Copy-Item $Qnn (Join-Path $Stage "qnn") -Recurse
 # Same names as in the installer: Settings > About opens NOTICE next to the exe.
 Copy-Item (Join-Path $Root "NOTICE") $Stage
 Copy-Item (Join-Path $Root "LICENSE") $Stage

@@ -581,6 +581,126 @@
       ]
     },
     {
+      "id": "whisper-large-v3-turbo-npu",
+      "name": "Whisper Large v3 Turbo for the NPU",
+      "family": "whisper",
+      "accuracy": 4,
+      "speed": 4,
+      "languages": ["*"],
+      "languages_label": "99 languages, Urdu included, runs on the Snapdragon X NPU",
+      "ram_mb": 2300,
+      "npu": true,
+      "files": [
+        {
+          "name": "whisper_large_v3_turbo-precompiled_qnn_onnx-float-qualcomm_snapdragon_x_elite.zip",
+          "url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/whisper_large_v3_turbo/releases/v0.66.0/whisper_large_v3_turbo-precompiled_qnn_onnx-float-qualcomm_snapdragon_x_elite.zip",
+          "size": 2018038680,
+          "sha256": "89e0c9f4fc8f2a141f5ba734e9c063f6ee1a04e6daf44c4c0f2f82d56b01b8fc",
+          "unzip": true
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/openai/whisper-large-v3-turbo/resolve/41f01f3fe87f28c78e2fbf8b568835947dd65ed9/tokenizer.json",
+          "size": 2710337,
+          "sha256": "297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd"
+        }
+      ]
+    },
+    {
+      "id": "distil-whisper-small-en-npu",
+      "name": "Distil-Whisper Small for the NPU",
+      "family": "whisper",
+      "accuracy": 4,
+      "speed": 4,
+      "languages": ["en"],
+      "languages_label": "English only, runs on the Snapdragon X NPU",
+      "ram_mb": 2500,
+      "npu": true,
+      "files": [
+        {
+          "name": "distil_whisper-onnx-float.zip",
+          "url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/distil_whisper/releases/v0.66.0/distil_whisper-onnx-float.zip",
+          "size": 482300787,
+          "sha256": "b9d554eb7ced1ad1a0df9705776fdd5c44d7b6a0f3be08123ecfea4e7e3469ad",
+          "unzip": true
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/distil-whisper/distil-small.en/resolve/9e4a67ca4569c30be43a3fe7fba1621e504f0093/tokenizer.json",
+          "size": 2405466,
+          "sha256": "c9c77688528c0509abbd41873edab16384b8f041531b1d3092ab4d1d83a02a50"
+        }
+      ]
+    },
+    {
+      "id": "qwen2.5-1.5b-instruct-npu",
+      "name": "Qwen2.5 1.5B for the NPU",
+      "family": "fixup",
+      "accuracy": 0,
+      "speed": 0,
+      "languages": ["*"],
+      "languages_label": "Fastest, runs on the Snapdragon X NPU",
+      "ram_mb": 2000,
+      "npu": true,
+      "open_gain": 10,
+      "files": [
+        {
+          "name": "context_ctx.onnx",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/context_ctx.onnx",
+          "size": 16830811,
+          "sha256": "7b666bd6e4c8831ca8d38dfc733247dc5ea7c9f5ffd90eea47214ca1e365f62d"
+        },
+        {
+          "name": "iterator_ctx.onnx",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/iterator_ctx.onnx",
+          "size": 16830907,
+          "sha256": "47105004fdaca7c33ae814827e8033a8ad307dd76ff6111616b4ec93e1cf24a5"
+        },
+        {
+          "name": "context_0_ctx_qnn.bin",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/context_0_ctx_qnn.bin",
+          "size": 168512384,
+          "sha256": "ceb144bb5958d0e60c6bf56829ec6e8cb08c8a873f8711330270c0b71055ac50"
+        },
+        {
+          "name": "context_1_ctx_qnn.bin",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/context_1_ctx_qnn.bin",
+          "size": 168518384,
+          "sha256": "b4edbddd94f2e58cc3d2ab481f45ca358f7e47481fa697601040ab2dce2fd828"
+        },
+        {
+          "name": "context_2_ctx_qnn.bin",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/context_2_ctx_qnn.bin",
+          "size": 168522600,
+          "sha256": "debe45229731c0a83fb2b7fdba57c83db1bc2192e4ccab5d3b6fd1531ac135a8"
+        },
+        {
+          "name": "context_3_ctx_qnn.bin",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/context_3_ctx_qnn.bin",
+          "size": 168518288,
+          "sha256": "f027d654997f6809aee3aaf3b6b88be88aff82fa4d95f5f105834ad0974e483b"
+        },
+        {
+          "name": "embeddings.onnx",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/embeddings.onnx",
+          "size": 145860346,
+          "sha256": "eaeb86171f1594f43ab845ad4f2a3f1760b4e5f8ed2ae183800b6ae45cc0b074"
+        },
+        {
+          "name": "lm_head.onnx",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/lm_head.onnx",
+          "size": 145860556,
+          "sha256": "3f93f0fc225413df3e892049e3663c583e54e257db8de4201cab1ae2854ab6aa"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/llmware/qwen2.5-1.5b-instruct-onnx-qnn/resolve/29336b9b36ed979752d720e1b8ac4936e263fd7f/tokenizer.json",
+          "size": 11421893,
+          "sha256": "e5eb9f0551d6ef045dcaa4a7b58c50a35eefa0b80d6ce13608ee43d4ff39911c"
+        }
+      ]
+    },
+    {
       "id": "qwen3-4b-instruct-int4",
       "name": "Qwen3 4B Instruct",
       "family": "fixup",

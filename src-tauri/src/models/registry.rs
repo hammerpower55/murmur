@@ -11,6 +11,7 @@ use serde::Serialize;
 use super::catalog::{self, CatalogModel, Family};
 use super::download::file_complete;
 use crate::engine::fixer::FixupModel;
+use crate::engine::onnx::npu_available;
 
 pub const CUSTOM_DIR: &str = "custom";
 const CUSTOM_PREFIX: &str = "custom:";
@@ -33,6 +34,8 @@ pub struct ModelInfo {
     pub default: bool,
     pub custom: bool,
     pub installed: bool,
+    /// Built for the Snapdragon X NPU.
+    pub npu: bool,
 }
 
 impl ModelInfo {
@@ -51,6 +54,7 @@ impl ModelInfo {
             default: m.default,
             custom: false,
             installed,
+            npu: m.npu,
         }
     }
 }
@@ -86,10 +90,13 @@ impl Registry {
     }
 
     /// Catalogue models in catalogue order, then custom models by name.
+    /// Every model, without NPU builds on a PC that cannot run them
+    /// (unless one is installed, so it can still be deleted).
     pub fn list(&self) -> Vec<ModelInfo> {
         let mut out: Vec<ModelInfo> = catalog::catalog()
             .iter()
             .map(|m| ModelInfo::from_catalog(m, self.is_installed(m)))
+            .filter(|m| !m.npu || m.installed || npu_available())
             .collect();
         out.extend(self.custom_models());
         out
@@ -103,24 +110,28 @@ impl Registry {
             .collect()
     }
 
-    /// The word fixer in use: the first installed one in catalogue order,
-    /// which lists the strongest first.
-    pub fn fixup_id(&self) -> Option<String> {
+    /// Installed word fixers that can run, in catalogue order: NPU builds
+    /// first (only with `use_npu` and an NPU), then the strongest CPU ones.
+    fn fixups(&self, use_npu: bool) -> Vec<CatalogModel> {
         catalog::catalog()
             .into_iter()
-            .find(|m| m.family == Family::Fixup && self.is_installed(m))
-            .map(|m| m.id)
+            .filter(|m| m.family == Family::Fixup && self.is_installed(m))
+            .filter(|m| !m.npu || (use_npu && npu_available()))
+            .collect()
     }
 
-    /// The word fixer in use, if one is installed.
-    pub fn fixup(&self) -> Option<FixupModel> {
-        catalog::catalog()
-            .into_iter()
-            .find(|m| m.family == Family::Fixup && self.is_installed(m))
-            .map(|m| FixupModel {
-                dir: self.model_dir(&m.id),
-                thinking: m.thinking,
-            })
+    /// The word fixer in use.
+    pub fn fixup_id(&self, use_npu: bool) -> Option<String> {
+        self.fixups(use_npu).into_iter().next().map(|m| m.id)
+    }
+
+    /// The word fixer in use, with the rest as fallbacks in order.
+    pub fn fixup(&self, use_npu: bool) -> Option<FixupModel> {
+        FixupModel::chain(
+            self.fixups(use_npu)
+                .into_iter()
+                .map(|m| FixupModel::new(self.model_dir(&m.id), m.thinking, m.open_gain)),
+        )
     }
 
     fn custom_models(&self) -> Vec<ModelInfo> {
@@ -150,6 +161,7 @@ impl Registry {
                     default: false,
                     custom: true,
                     installed: true,
+                    npu: false,
                 })
             })
             .collect();
@@ -175,6 +187,8 @@ impl Registry {
         }
         let dir = self.model_dir(id);
         let path = match model.family {
+            // NPU builds are folders of ONNX files, like the ONNX engines.
+            Family::Whisper if model.npu => dir,
             Family::Whisper => dir.join(&model.files[0].name),
             // ONNX engines take the folder and find their files in it.
             Family::Parakeet | Family::Moonshine | Family::Sensevoice | Family::Fixup => dir,
@@ -244,7 +258,9 @@ mod tests {
     fn nothing_installed_in_an_empty_folder() {
         let r = Registry::new(temp_models("empty"));
         assert!(r.installed().is_empty());
-        assert_eq!(r.list().len(), catalog::catalog().len());
+        // NPU builds are listed only where they can run.
+        let runnable = catalog::catalog().iter().filter(|m| !m.npu || npu_available()).count();
+        assert_eq!(r.list().len(), runnable);
     }
 
     #[test]

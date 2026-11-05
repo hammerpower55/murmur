@@ -66,6 +66,9 @@ jobs:
       - name: ONNX Runtime (ARM64)
         run: ./scripts/fetch_onnxruntime.ps1
 
+      - name: QNN execution provider (ARM64)
+        run: ./scripts/fetch_qnn.ps1
+
       - name: Frontend dependencies
         run: pnpm install --frozen-lockfile
 

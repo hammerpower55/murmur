@@ -36,6 +36,11 @@ pub struct ModelFile {
     /// Other places serving the same bytes, tried when `url` fails or crawls.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mirrors: Vec<String>,
+    /// A zip archive (how Qualcomm AI Hub ships models): unpacked into the
+    /// model folder once its hash matches, its top folder dropped, then
+    /// deleted. `<name>.unpacked` marks it done.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unzip: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +64,15 @@ pub struct CatalogModel {
     /// end their reply at once when given one.
     #[serde(default, skip_serializing)]
     pub thinking: bool,
+    /// A build precompiled for the Snapdragon X NPU: listed only on PCs
+    /// that have one, used only while "Use the NPU" is on.
+    #[serde(default)]
+    pub npu: bool,
+    /// Word fixers: the whole number gain "Check every word" needs with this
+    /// model, when it is not the usual MIN_GAIN_OPEN (small models are less
+    /// sure).
+    #[serde(default, skip_serializing)]
+    pub open_gain: Option<u8>,
     pub files: Vec<ModelFile>,
 }
 
@@ -134,7 +148,12 @@ mod tests {
         for m in catalog() {
             assert!(!m.files.is_empty(), "{}", m.id);
             for f in &m.files {
-                assert!(f.url.starts_with("https://huggingface.co/"), "{}", f.url);
+                // Hugging Face pinned to a commit, or a Qualcomm AI Hub release,
+                // whose path names its version.
+                let hub = f.url.starts_with("https://huggingface.co/");
+                let ai_hub = f.url.starts_with("https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/")
+                    && f.url.contains("/releases/v");
+                assert!(hub || ai_hub, "{}", f.url);
                 assert!(!f.url.contains("/resolve/main/"), "unpinned {}", f.url);
                 assert!(f.url.ends_with(&format!("/{}", f.name)), "{}", f.url);
                 assert!(f.size > 0, "{}", f.name);

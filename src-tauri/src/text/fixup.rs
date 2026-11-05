@@ -148,12 +148,17 @@ pub fn candidates(transcript: &str, ctx: &Context) -> Vec<Candidate> {
             let edge = heard_words.len() > 1 && (small(heard_words.first()) || small(heard_words.last()));
             if edge
                 || heard_words.iter().all(|w| super::stopwords::is_stopword(w))
+                || heard_words.iter().any(|w| super::fillers::is_hesitation(w))
                 || offers.iter().any(|(o, _)| words(o) == heard_words)
             {
                 continue;
             }
             for (meant, from_dictionary) in &offers {
-                if words(meant).len() <= heard_words.len() + 1 && sounds_alike(heard, meant) {
+                let meant_words = words(meant);
+                // Keeping one of the heard words and dropping the rest is not
+                // a mishearing ("private season" once became "private").
+                let drops = heard_words.len() > 1 && meant_words.iter().any(|m| heard_words.contains(m));
+                if !drops && meant_words.len() <= heard_words.len() + 1 && sounds_alike(heard, meant) {
                     found.push(Candidate {
                         start,
                         end,
@@ -341,6 +346,17 @@ mod tests {
         };
         assert_eq!(lead(&earlier), "Hello there\n\n");
         assert_eq!(lead(&Context::default()), "");
+    }
+
+    #[test]
+    fn candidates_never_drop_heard_words_or_touch_fillers() {
+        // From the history: "private season" became "private", "Um" became "Im".
+        let ctx = Context {
+            earlier: "Private beta. Im on it.".into(),
+            ..Context::default()
+        };
+        let found = candidates("You know, private season and every. Um larger board", &ctx);
+        assert!(found.iter().all(|c| c.meant != "Private" && c.meant != "Im"), "{found:?}");
     }
 
     #[test]

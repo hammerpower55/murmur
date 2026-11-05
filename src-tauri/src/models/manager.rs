@@ -3,6 +3,7 @@
 //! Events: `models-changed` (refetch the list), `model-download` (progress)
 //! and `model-error` (one line for the user).
 
+use crate::engine::onnx::npu_available;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,6 +38,8 @@ pub struct ModelsView {
     pub roman_urdu: bool,
     /// The word fixer in use, if one is installed.
     pub fixer: Option<String>,
+    /// This PC has an NPU that NPU builds can run on.
+    pub npu: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -85,7 +88,7 @@ impl ModelManager {
         fixer: Arc<Fixer>,
     ) -> Arc<Self> {
         let registry = Registry::new(models_dir);
-        fixer.set_model(registry.fixup());
+        fixer.set_model(registry.fixup(settings::current(&app).use_npu));
         Arc::new(Self {
             app,
             registry,
@@ -107,12 +110,25 @@ impl ModelManager {
             loading: self.host.loading(),
             downloads,
             roman_urdu: settings::current(&self.app).roman_urdu,
-            fixer: self.registry.fixup_id(),
+            fixer: self.registry.fixup_id(settings::current(&self.app).use_npu),
+            npu: npu_available(),
         }
     }
 
     pub fn has_installed_model(&self) -> bool {
         !self.registry.installed().is_empty()
+    }
+
+    /// Points the word fixer at the one to use now, after a download, a
+    /// delete or a change to "Use the NPU".
+    pub fn refresh_fixer(&self) {
+        self.fixer
+            .set_model(self.registry.fixup(settings::current(&self.app).use_npu));
+    }
+
+    /// Tells the page the models view changed.
+    pub fn changed_view(&self) {
+        self.changed();
     }
 
     fn changed(&self) {
@@ -243,7 +259,7 @@ impl ModelManager {
                 match result {
                     Ok(()) if !model.family.is_speech() => {
                         log::info!("downloaded {id}");
-                        me.fixer.set_model(me.registry.fixup());
+                        me.refresh_fixer();
                     }
                     Ok(()) => {
                         log::info!("downloaded {id}");
@@ -290,7 +306,7 @@ impl ModelManager {
             self.fixer.set_model(None);
         }
         let freed = self.registry.delete(id)?;
-        self.fixer.set_model(self.registry.fixup());
+        self.refresh_fixer();
         log::info!("deleted {id}, freed {} MB", freed / 1_000_000);
         self.changed();
         Ok(freed)

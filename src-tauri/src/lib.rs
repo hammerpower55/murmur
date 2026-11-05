@@ -49,6 +49,22 @@ fn onnxruntime_path(app: &AppHandle) -> PathBuf {
     bundled.unwrap_or_else(|| PathBuf::from("onnxruntime.dll"))
 }
 
+/// Qualcomm's QNN plugin ships in a qnn folder next to the app. Dev builds
+/// fall back to the copy scripts/fetch_qnn.ps1 puts in vendor/.
+fn qnn_dir(app: &AppHandle) -> PathBuf {
+    let bundled = app
+        .path()
+        .resource_dir()
+        .map(|dir| dir.join("qnn"))
+        .ok()
+        .filter(|p| p.is_dir());
+    #[cfg(debug_assertions)]
+    let bundled = bundled.or_else(|| {
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor/onnxruntime-qnn-2.7.0"))
+    });
+    bundled.unwrap_or_else(|| PathBuf::from("qnn"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let result = tauri::Builder::default()
@@ -143,6 +159,12 @@ pub fn run() {
             }
 
             engine::onnx::set_runtime_path(onnxruntime_path(&handle));
+            engine::onnx::set_qnn_dir(qnn_dir(&handle));
+            // Loading the runtime and looking for an NPU takes a moment; do it
+            // now, off the main thread, so the Models page does not wait.
+            let _ = std::thread::Builder::new()
+                .name("murmur-npu-check".into())
+                .spawn(engine::onnx::npu_available);
             let host = EngineHost::new();
             let fixer = Fixer::new();
             let models = ModelManager::new(

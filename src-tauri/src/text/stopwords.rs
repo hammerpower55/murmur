@@ -32,6 +32,13 @@ pub fn countable_words(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Everyday Roman Urdu words beyond the spec's stopword list, used only to
+/// tell Roman Urdu apart (the stopword list also feeds word counts).
+const MORE_ROMAN_URDU: [&str; 18] = [
+    "pata", "mujhe", "mujhse", "nahin", "sach", "chalo", "wala", "wali", "wale", "kal",
+    "hamara", "tumhara", "chahiye", "sakta", "sakti", "bilkul", "zaroor", "shukriya",
+];
+
 /// Number of words in `text` that are Roman Urdu and not also English.
 pub fn roman_urdu_words(text: &str) -> usize {
     static URDU: OnceLock<HashSet<String>> = OnceLock::new();
@@ -46,7 +53,11 @@ pub fn roman_urdu_words(text: &str) -> usize {
                 .collect()
         };
         let english = list("english");
-        list("urdu").into_iter().filter(|w| !english.contains(w)).collect()
+        list("urdu")
+            .into_iter()
+            .chain(MORE_ROMAN_URDU.iter().map(|w| w.to_string()))
+            .filter(|w| !english.contains(w))
+            .collect()
     });
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
@@ -83,6 +94,14 @@ mod tests {
             countable_words("The quarterly report is ready, a 2nd draft at 3 pm."),
             vec!["quarterly", "report", "ready", "2nd", "draft", "pm"]
         );
+    }
+
+    #[test]
+    fn spots_roman_urdu_from_one_everyday_word() {
+        // Misheard Roman Urdu the fixer once made worse.
+        assert_eq!(roman_urdu_words("Such memo ji but a gallery."), 1);
+        assert_eq!(roman_urdu_words("Munja pata honerale."), 1);
+        assert_eq!(roman_urdu_words("Make a list of groceries: carrot, apple, tea."), 0);
     }
 
     #[test]

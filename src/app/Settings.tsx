@@ -380,6 +380,11 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             onChange={(v) => set({ fixAnyWord: v })}
           />
         </Row>
+        {view?.npu && (
+          <Row label="Use the NPU">
+            <Toggle label="Use the NPU" checked={s.useNpu} onChange={(v) => set({ useNpu: v })} />
+          </Row>
+        )}
         <Row label="Learn words from your corrections">
           <Toggle
             label="Learn words from your corrections"

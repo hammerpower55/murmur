@@ -208,6 +208,10 @@ pub fn set_settings(
         // Turned off: give its memory back now rather than when idle.
         fixer.park();
     }
+    if previous.use_npu != next.use_npu {
+        models.refresh_fixer();
+        models.changed_view();
+    }
     if next.typing_wpm != previous.typing_wpm {
         let _ = app.emit("insights-changed", ());
     }

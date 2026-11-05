@@ -1,10 +1,20 @@
 //! A small language model through ONNX Runtime, used to score text: how
 //! likely each token is given the ones before it (text/fixup.rs uses it to
-//! judge whether a user's word fits better than what was heard). Built for
-//! onnxruntime-genai exports (onnx-community/Qwen3-1.7B-ONNX, cpu-int4): one
-//! model.onnx taking input_ids, attention_mask and past_key_values.N.{key,
-//! value}, returning logits and present.N.{key,value}. Layer and head counts
-//! come from the model.
+//! judge whether a user's word fits better than what was heard). Two kinds
+//! of export:
+//!
+//! - CPU: onnxruntime-genai exports (onnx-community/Qwen3-1.7B-ONNX,
+//!   cpu-int4): one model.onnx taking input_ids, attention_mask and
+//!   past_key_values.N.{key,value}, returning logits and present.N.{key,value}.
+//! - NPU: Foundry Local's QNN split (llmware's *-onnx-qnn builds). The
+//!   embeddings and lm_head run on the CPU; context_ctx.onnx and
+//!   iterator_ctx.onnx hold the transformer as precompiled QNN graphs for the
+//!   Hexagon NPU, with attention and its cache on the CPU between them. The
+//!   context graph takes a fixed window of tokens (64), the iterator one.
+//!   Their cache has the same [1, heads, length, head_dim] layout as the CPU
+//!   export's, so everything above `run_with` is shared.
+//!
+//! Layer and head counts come from the model.
 //!
 //! A scored text keeps its cache, so an alternative only runs from the point
 //! where it differs. The same model also writes replies for the Chat page
@@ -18,10 +28,15 @@ use ort::session::{Session, SessionInputValue};
 use ort::value::{DynValue, Tensor};
 use tokenizers::Tokenizer;
 
-use super::onnx::session;
+use super::onnx::{npu_session, session};
 
 pub const MODEL: &str = "model.onnx";
 pub const TOKENIZER: &str = "tokenizer.json";
+/// Only NPU builds have it.
+pub const NPU_CONTEXT: &str = "context_ctx.onnx";
+const NPU_ITERATOR: &str = "iterator_ctx.onnx";
+const NPU_EMBEDDINGS: &str = "embeddings.onnx";
+const NPU_HEAD: &str = "lm_head.onnx";
 
 /// One layer's cache inputs and the outputs that feed them.
 struct Layer {
@@ -37,30 +52,102 @@ struct Cache {
     len: usize,
 }
 
+enum Backend {
+    Cpu { session: Session, position_ids: bool },
+    Npu(Box<Npu>),
+}
+
+/// The four sessions of an NPU build.
+struct Npu {
+    embed: Session,
+    context: Session,
+    iterator: Session,
+    head: Session,
+    /// Tokens the context graph takes per run.
+    window: usize,
+    /// The embeddings' output, which both graphs take.
+    embedded: String,
+    /// The graphs' last hidden state, which the head takes.
+    hidden: String,
+    head_in: String,
+}
+
+impl Npu {
+    fn load(dir: &Path, threads: usize) -> Result<Self> {
+        let context = npu_session(dir, NPU_CONTEXT)?;
+        let iterator = npu_session(dir, NPU_ITERATOR)?;
+        let embed = session(dir, NPU_EMBEDDINGS, threads)?;
+        let head = session(dir, NPU_HEAD, threads)?;
+        let embedded = context
+            .inputs()
+            .iter()
+            .find(|i| !i.name().starts_with("past_") && !i.name().ends_with("_seq_len"))
+            .context("context graph has no embeddings input")?;
+        let window = embedded
+            .dtype()
+            .tensor_shape()
+            .and_then(|shape| shape.get(1).copied())
+            .filter(|&w| w > 0)
+            .context("context graph has no fixed window")? as usize;
+        let embedded = embedded.name().to_string();
+        let hidden = context
+            .outputs()
+            .iter()
+            .find(|o| !o.name().starts_with("present."))
+            .context("context graph has no hidden state output")?
+            .name()
+            .to_string();
+        let head_in = head.inputs().first().context("lm_head has no input")?.name().to_string();
+        Ok(Self {
+            embed,
+            context,
+            iterator,
+            head,
+            window,
+            embedded,
+            hidden,
+            head_in,
+        })
+    }
+}
+
 pub struct Llm {
-    session: Mutex<Session>,
+    backend: Mutex<Backend>,
     tokenizer: Tokenizer,
     layers: Vec<Layer>,
     kv_heads: usize,
     head_dim: usize,
-    position_ids: bool,
 }
 
 impl Llm {
+    /// Loads a CPU export, or an NPU build when the folder holds one (which
+    /// fails on a PC without the NPU it was compiled for).
     pub fn load(dir: &Path, threads: usize) -> Result<Self> {
         let tokenizer = Tokenizer::from_file(dir.join(TOKENIZER))
             .map_err(|e| anyhow!("could not read {TOKENIZER}: {e}"))?;
-        let session = session(dir, MODEL, threads)?;
-        let (layers, kv_heads, head_dim) = layers(&session)?;
-        let position_ids = session.inputs().iter().any(|i| i.name() == "position_ids");
+        let backend = if dir.join(NPU_CONTEXT).is_file() {
+            Backend::Npu(Box::new(Npu::load(dir, threads)?))
+        } else {
+            let session = session(dir, MODEL, threads)?;
+            let position_ids = session.inputs().iter().any(|i| i.name() == "position_ids");
+            Backend::Cpu { session, position_ids }
+        };
+        let (layers, kv_heads, head_dim) = match &backend {
+            Backend::Cpu { session, .. } => layers(session)?,
+            Backend::Npu(npu) => layers(&npu.context)?,
+        };
         Ok(Self {
-            session: Mutex::new(session),
+            backend: Mutex::new(backend),
             tokenizer,
             layers,
             kv_heads,
             head_dim,
-            position_ids,
         })
+    }
+
+    /// Whether this model runs on the NPU.
+    pub fn on_npu(&self) -> bool {
+        self.backend.lock().is_ok_and(|b| matches!(*b, Backend::Npu(_)))
     }
 
     fn empty_cache(&self) -> Result<Cache> {
@@ -80,10 +167,27 @@ impl Llm {
 
     /// Runs `ids` after `past`, calling `row` with the position (counted
     /// from the first of `ids`) and logits of each of the last `rows`
-    /// positions. Returns the grown cache.
+    /// positions, in order. Returns the grown cache.
     fn run_with(
         &self,
+        backend: &mut Backend,
+        ids: &[u32],
+        past: &Cache,
+        rows: usize,
+        row: impl FnMut(usize, &[f32]),
+    ) -> Result<Cache> {
+        match backend {
+            Backend::Cpu { session, position_ids } => {
+                self.run_cpu(session, *position_ids, ids, past, rows, row)
+            }
+            Backend::Npu(npu) => self.run_npu(npu, ids, past, rows, row),
+        }
+    }
+
+    fn run_cpu(
+        &self,
         s: &mut Session,
+        position_ids: bool,
         ids: &[u32],
         past: &Cache,
         rows: usize,
@@ -102,17 +206,14 @@ impl Llm {
                 Tensor::from_array(([1usize, total], vec![1i64; total]))?.into(),
             ),
         ];
-        if self.position_ids {
+        if position_ids {
             let positions = (past.len as i64..total as i64).collect::<Vec<_>>();
             inputs.push((
                 "position_ids".into(),
                 Tensor::from_array(([1usize, n], positions))?.into(),
             ));
         }
-        for (layer, (k, v)) in self.layers.iter().zip(&past.values) {
-            inputs.push((layer.key_in.clone(), SessionInputValue::from(k)));
-            inputs.push((layer.value_in.clone(), SessionInputValue::from(v)));
-        }
+        self.push_cache(&mut inputs, past);
         let mut out = s.run(inputs)?;
 
         if rows > 0 {
@@ -126,6 +227,85 @@ impl Llm {
                 row(p + n - positions, &logits[p * vocab..(p + 1) * vocab]);
             }
         }
+        self.take_cache(&mut out, total)
+    }
+
+    /// The NPU split: each chunk of `ids` is embedded on the CPU, run through
+    /// the context graph (padded to its window) or, for a lone token, the
+    /// iterator, and the wanted rows of its hidden state go through lm_head.
+    /// Padding only ever follows real tokens, so it never changes their
+    /// results, and it is cut from the cache.
+    fn run_npu(
+        &self,
+        npu: &mut Npu,
+        ids: &[u32],
+        past: &Cache,
+        rows: usize,
+        mut row: impl FnMut(usize, &[f32]),
+    ) -> Result<Cache> {
+        let n = ids.len();
+        if n == 0 {
+            bail!("nothing to run");
+        }
+        let first_row = n.saturating_sub(rows);
+        let mut grown: Option<Cache> = None;
+        let mut start = 0;
+        while start < n {
+            let past = grown.as_ref().unwrap_or(past);
+            let base = past.len;
+            let width = if n - start == 1 { 1 } else { npu.window };
+            let take = (n - start).min(width);
+            let mut chunk: Vec<i64> = ids[start..start + take].iter().map(|&i| i as i64).collect();
+            chunk.resize(width, 0);
+            let embedded = npu
+                .embed
+                .run(ort::inputs!["input_ids" => Tensor::from_array(([1usize, width], chunk))?])?
+                .remove(&npu.embedded)
+                .context("embeddings returned nothing")?;
+            let total = base + width;
+            let mut inputs: Vec<(String, SessionInputValue)> = vec![(npu.embedded.clone(), embedded.into())];
+            self.push_cache(&mut inputs, past);
+            inputs.push((
+                "past_seq_len".into(),
+                Tensor::from_array(([1usize, 1], vec![total as i32 - 1]))?.into(),
+            ));
+            inputs.push((
+                "total_seq_len".into(),
+                Tensor::from_array(((), vec![total as i32]))?.into(),
+            ));
+            let graph = if width == 1 { &mut npu.iterator } else { &mut npu.context };
+            let mut out = graph.run(inputs)?;
+
+            let (lo, hi) = (first_row.max(start), start + take);
+            if lo < hi {
+                let hidden = out.remove(&npu.hidden).context("model returned no hidden state")?;
+                let hidden = if hi - lo == width { hidden } else { rows_of(&hidden, lo - start, hi - start)? };
+                let logits = npu.head.run(ort::inputs![npu.head_in.as_str() => hidden])?;
+                let (shape, logits) = logits["logits"].try_extract_tensor::<f32>()?;
+                let vocab = *shape.last().context("logits have no shape")? as usize;
+                if logits.len() < (hi - lo) * vocab {
+                    bail!("unexpected logits shape {shape:?}");
+                }
+                for (k, p) in (lo..hi).enumerate() {
+                    row(p, &logits[k * vocab..(k + 1) * vocab]);
+                }
+            }
+            let cache = self.take_cache(&mut out, total)?;
+            grown = Some(if take < width { self.prefix_of(&cache, base + take)? } else { cache });
+            start += take;
+        }
+        grown.context("nothing was run")
+    }
+
+    fn push_cache<'a>(&self, inputs: &mut Vec<(String, SessionInputValue<'a>)>, past: &'a Cache) {
+        for (layer, (k, v)) in self.layers.iter().zip(&past.values) {
+            inputs.push((layer.key_in.clone(), SessionInputValue::from(k)));
+            inputs.push((layer.value_in.clone(), SessionInputValue::from(v)));
+        }
+    }
+
+    /// Every layer's present keys and values from a run's outputs.
+    fn take_cache(&self, out: &mut ort::session::SessionOutputs, len: usize) -> Result<Cache> {
         let mut values = Vec::with_capacity(self.layers.len());
         for layer in &self.layers {
             let k = out
@@ -136,7 +316,7 @@ impl Llm {
                 .with_context(|| format!("model did not return {}", layer.value_out))?;
             values.push((k, v));
         }
-        Ok(Cache { values, len: total })
+        Ok(Cache { values, len })
     }
 
     /// A copy of the first `keep` positions of every layer's cache.
@@ -174,7 +354,7 @@ impl Llm {
     /// Scores every token of `ids` in one pass. `top_at` lists positions
     /// whose `k` most likely tokens are wanted too.
     pub fn score(&self, ids: &[u32], top_at: &[usize], k: usize) -> Result<Scored> {
-        let mut s = self.session.lock().map_err(|_| anyhow!("model poisoned"))?;
+        let mut s = self.backend.lock().map_err(|_| anyhow!("model poisoned"))?;
         let empty = self.empty_cache()?;
         let mut logprobs = vec![0.0f32; ids.len()];
         let mut top = Vec::new();
@@ -222,7 +402,7 @@ impl Llm {
             .iter()
             .filter_map(|t| self.tokenizer.token_to_id(t))
             .collect();
-        let lock = || self.session.lock().map_err(|_| anyhow!("model poisoned"));
+        let lock = || self.backend.lock().map_err(|_| anyhow!("model poisoned"));
         let mut out: Vec<u32> = Vec::new();
         let mut next = 0u32;
         let empty = self.empty_cache()?;
@@ -248,7 +428,7 @@ impl Llm {
         if keep == 0 || keep > scored.ids.len() || tokens.is_empty() {
             bail!("nothing to continue from");
         }
-        let mut s = self.session.lock().map_err(|_| anyhow!("model poisoned"))?;
+        let mut s = self.backend.lock().map_err(|_| anyhow!("model poisoned"))?;
         let past = self.prefix_of(&scored.cache, keep - 1)?;
         let mut fed = vec![scored.ids[keep - 1]];
         fed.extend_from_slice(tokens);
@@ -275,6 +455,14 @@ pub struct Scored {
     /// (position, most likely tokens there with their log probabilities).
     pub top: Vec<(usize, Vec<(u32, f32)>)>,
     cache: Cache,
+}
+
+/// Rows `from..to` of a [1, rows, width] hidden state.
+fn rows_of(hidden: &DynValue, from: usize, to: usize) -> Result<DynValue> {
+    let (shape, data) = hidden.try_extract_tensor::<u16>()?;
+    let width = *shape.last().context("hidden state has no shape")? as usize;
+    let rows = data.get(from * width..to * width).context("hidden state is too short")?;
+    Ok(Tensor::from_array(([1usize, to - from, width], rows.to_vec()))?.into_dyn())
 }
 
 fn log_sum_exp(logits: &[f32]) -> f32 {
@@ -387,3 +575,46 @@ mod tests {
         assert!((log_sum_exp(&y) - 4f32.ln()).abs() < 1e-5);
     }
 }
+
+/// Scores a long passage in one go (windows on the NPU) and token by token,
+/// which must agree, and prints how far apart they are:
+///
+///   MURMUR_FIXUP_ID=<model> cargo test --release long_text_scores_agree -- --ignored --nocapture
+#[cfg(test)]
+mod eval {
+    use super::*;
+    use crate::engine::{default_threads, onnx};
+
+    #[test]
+    #[ignore = "needs a downloaded word fixer"]
+    fn long_text_scores_agree() {
+        onnx::use_vendored_runtime();
+        let id = std::env::var("MURMUR_FIXUP_ID").unwrap_or_else(|_| "qwen2.5-1.5b-instruct-npu".into());
+        let llm = Llm::load(&onnx::installed_model_dir(&id), default_threads()).unwrap();
+        let text = "Okay, so I want some changes to the Monopoly game. The board should be bigger, the properties should be more colourful, and the dice should have their own place on the table. I also want a sixty second timer for every turn, proper illustrations for each card, and a way to play with friends online. When a player lands on a property they do not own, show the rent clearly and let them pay with one click. At the end of the game, show who won and how much money everyone had left, and offer a rematch button.";
+        let ids = llm.encode(text).unwrap();
+        let whole = llm.score(&ids, &[], 0).unwrap().logprobs;
+        let mut stepped = vec![0.0f32; ids.len()];
+        let mut b = llm.backend.lock().unwrap();
+        let mut cache = llm.empty_cache().unwrap();
+        for (i, &id) in ids.iter().enumerate() {
+            let next = ids.get(i + 1).copied();
+            cache = llm
+                .run_with(&mut b, &[id], &cache, 1, |_, logits| {
+                    if let Some(next) = next {
+                        stepped[i + 1] = logits[next as usize] - log_sum_exp(logits);
+                    }
+                })
+                .unwrap();
+        }
+        let worst = (1..ids.len()).map(|i| (i, (whole[i] - stepped[i]).abs())).fold((0, 0.0f32), |a, b| if b.1 > a.1 { b } else { a });
+        let by_window: Vec<String> = ids.chunks(64).enumerate().map(|(w, c)| {
+            let start = w * 64;
+            let diff: f32 = (start.max(1)..start + c.len()).map(|i| (whole[i] - stepped[i]).abs()).sum::<f32>() / c.len() as f32;
+            format!("window {w}: {diff:.3}")
+        }).collect();
+        println!("{} tokens, total {:.1} whole vs {:.1} stepped, worst token {} off by {:.2}; mean difference {}", ids.len(), whole.iter().sum::<f32>(), stepped.iter().sum::<f32>(), worst.0, worst.1, by_window.join(", "));
+        assert!(worst.1 < 1.0, "windowed and stepped scores disagree");
+    }
+}
+

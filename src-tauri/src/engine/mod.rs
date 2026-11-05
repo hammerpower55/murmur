@@ -9,6 +9,8 @@ pub mod onnx;
 pub mod parakeet;
 pub mod sensevoice;
 pub mod whisper;
+mod whisper_mel;
+pub mod whisper_npu;
 
 #[cfg(test)]
 mod eval;

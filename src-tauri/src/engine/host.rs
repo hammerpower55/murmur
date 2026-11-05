@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Result};
 
+use super::whisper_npu;
 use super::moonshine::MoonshineEngine;
 use super::parakeet::ParakeetEngine;
 use super::sensevoice::SenseVoiceEngine;
@@ -218,14 +219,22 @@ impl EngineHost {
     }
 }
 
-fn load(spec: &LoadSpec, opts: &EngineOptions) -> Result<Arc<dyn SpeechEngine>> {
-    let mut engine: Box<dyn SpeechEngine> = match spec.family {
+/// The engine that runs `spec`'s model, not loaded yet.
+pub(crate) fn engine_for(spec: &LoadSpec) -> Result<Box<dyn SpeechEngine>> {
+    Ok(match spec.family {
+        Family::Whisper if spec.path.join(whisper_npu::ENCODER).is_file() => {
+            Box::new(whisper_npu::WhisperNpuEngine::new())
+        }
         Family::Whisper => Box::new(WhisperEngine::new()),
         Family::Parakeet => Box::new(ParakeetEngine::new()),
         Family::Moonshine => Box::new(MoonshineEngine::new()),
         Family::Sensevoice => Box::new(SenseVoiceEngine::new()),
         Family::Fixup => anyhow::bail!("{} is not a speech model", spec.id),
-    };
+    })
+}
+
+fn load(spec: &LoadSpec, opts: &EngineOptions) -> Result<Arc<dyn SpeechEngine>> {
+    let mut engine = engine_for(spec)?;
     engine.load(&spec.path, opts)?;
     if !engine.is_loaded() {
         bail!("{} engine did not load {}", engine.id(), spec.id);

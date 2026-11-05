@@ -60,6 +60,17 @@
     ],
     "resources": {
       "vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll": "onnxruntime.dll",
+      "vendor/onnxruntime-qnn-2.7.0/onnxruntime_providers_qnn.dll": "qnn/onnxruntime_providers_qnn.dll",
+      "vendor/onnxruntime-qnn-2.7.0/QnnHtp.dll": "qnn/QnnHtp.dll",
+      "vendor/onnxruntime-qnn-2.7.0/QnnHtpPrepare.dll": "qnn/QnnHtpPrepare.dll",
+      "vendor/onnxruntime-qnn-2.7.0/QnnSystem.dll": "qnn/QnnSystem.dll",
+      "vendor/onnxruntime-qnn-2.7.0/QnnHtpV73Stub.dll": "qnn/QnnHtpV73Stub.dll",
+      "vendor/onnxruntime-qnn-2.7.0/libQnnHtpV73Skel.so": "qnn/libQnnHtpV73Skel.so",
+      "vendor/onnxruntime-qnn-2.7.0/libqnnhtpv73.cat": "qnn/libqnnhtpv73.cat",
+      "vendor/onnxruntime-qnn-2.7.0/LICENSE": "qnn/LICENSE",
+      "vendor/onnxruntime-qnn-2.7.0/Qualcomm_LICENSE.pdf": "qnn/Qualcomm_LICENSE.pdf",
+      "vendor/onnxruntime-qnn-2.7.0/ThirdPartyNotices.txt": "qnn/ThirdPartyNotices.txt",
+      "vendor/onnxruntime-qnn-2.7.0/Privacy.md": "qnn/Privacy.md",
       "../NOTICE": "NOTICE",
       "../LICENSE": "LICENSE"
     }

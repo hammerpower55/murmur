@@ -165,7 +165,7 @@ impl SpeechEngine for WhisperEngine {
 /// the initial prompt instead ("Okay, let me check and get back to you.").
 /// True when the output is a run of three or more words copied from the
 /// prompt; shorter matches ("okay") can be real speech.
-fn is_prompt_echo(text: &str, prompt: &str) -> bool {
+pub(crate) fn is_prompt_echo(text: &str, prompt: &str) -> bool {
     fn words(s: &str) -> Vec<String> {
         s.to_lowercase()
             .split(|c: char| !c.is_alphanumeric() && c != '\'')

@@ -109,6 +109,16 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
                   onChange={(v) => void update({ fixAnyWord: v })}
                 />
               </label>
+              {view.npu && (
+                <label className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-zinc-200">
+                  Use the NPU
+                  <Toggle
+                    label="Use the NPU"
+                    checked={settings.useNpu}
+                    onChange={(v) => void update({ useNpu: v })}
+                  />
+                </label>
+              )}
               <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-zinc-200">
                 Talk to the model to see what it can do
                 <button className={buttonClass} onClick={onOpenChat}>

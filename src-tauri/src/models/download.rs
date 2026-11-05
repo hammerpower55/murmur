@@ -74,7 +74,10 @@ fn remaining(model: &CatalogModel, dir: &Path) -> u64 {
                 return 0;
             }
             let have = fs::metadata(part_path(&target)).map_or(0, |m| m.len());
-            file.size.saturating_sub(have)
+            // An archive needs room for itself and what it unpacks to,
+            // which for these models is under twice its size.
+            let unpacked = if file.unzip { 2 * file.size } else { 0 };
+            file.size.saturating_sub(have) + unpacked
         })
         .sum()
 }
@@ -114,19 +117,73 @@ pub fn download_model(
             on_progress(done_before, total);
             continue;
         }
-        download_file(&client, file, &target, cancel, |bytes| {
-            on_progress(done_before + bytes, total)
-        })?;
+        if !(file.unzip && target.is_file() && !part_path(&target).exists()) {
+            download_file(&client, file, &target, cancel, |bytes| {
+                on_progress(done_before + bytes, total)
+            })?;
+        }
+        if file.unzip {
+            unpack(&target, dir, cancel)?;
+        }
         done_before += file.size;
     }
     on_progress(total, total);
     Ok(())
 }
 
-/// A finished file: present with the catalogue size. Hashes are checked
-/// when a download finishes, not on every start.
+/// A finished file: present with the catalogue size, or for an archive,
+/// unpacked. Hashes are checked when a download finishes, not on every start.
 pub fn file_complete(path: &Path, file: &ModelFile) -> bool {
+    if file.unzip {
+        return unpacked_marker(path).is_file();
+    }
     fs::metadata(path).is_ok_and(|m| m.len() == file.size)
+}
+
+fn unpacked_marker(archive: &Path) -> PathBuf {
+    let mut name = archive.file_name().unwrap_or_default().to_os_string();
+    name.push(".unpacked");
+    archive.with_file_name(name)
+}
+
+/// Unpacks `archive` into `dir`, dropping a top folder every entry shares,
+/// then deletes it and leaves the marker. Entries that would land outside
+/// `dir` are refused.
+fn unpack(archive: &Path, dir: &Path, cancel: &AtomicBool) -> Result<()> {
+    let file = File::open(archive).with_context(|| format!("could not open {}", archive.display()))?;
+    let mut zip = zip::ZipArchive::new(file).context("not a zip archive")?;
+    let names: Vec<PathBuf> = (0..zip.len())
+        .map(|i| {
+            zip.by_index(i)
+                .ok()
+                .and_then(|e| e.enclosed_name())
+                .context("archive has an unsafe path")
+        })
+        .collect::<Result<_>>()?;
+    let top = names
+        .first()
+        .and_then(|p| p.components().next())
+        .filter(|first| names.iter().all(|p| p.components().count() > 1 && p.components().next() == Some(*first)))
+        .map(|c| PathBuf::from(c.as_os_str()));
+    for (i, name) in names.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(Cancelled.into());
+        }
+        let mut entry = zip.by_index(i)?;
+        if entry.is_dir() {
+            continue;
+        }
+        let relative = top.as_ref().map_or(name.as_path(), |t| name.strip_prefix(t).unwrap_or(name));
+        let out = dir.join(relative);
+        if let Some(parent) = out.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut writer = File::create(&out).with_context(|| format!("could not write {}", out.display()))?;
+        std::io::copy(&mut entry, &mut writer).with_context(|| format!("could not unpack {}", name.display()))?;
+    }
+    fs::remove_file(archive).ok();
+    fs::write(unpacked_marker(archive), b"").context("could not finish unpacking")?;
+    Ok(())
 }
 
 fn part_path(target: &Path) -> PathBuf {
@@ -404,6 +461,8 @@ mod tests {
             default: false,
             note: None,
             thinking: false,
+            npu: false,
+            open_gain: None,
             files: vec![ModelFile {
                 name: "model.bin".into(),
                 url: url.into(),
@@ -411,6 +470,7 @@ mod tests {
                 sha256: Some(hex::encode(Sha256::digest(body))),
                 git_sha1: None,
                 mirrors: Vec::new(),
+                unzip: false,
             }],
         }
     }
@@ -451,6 +511,43 @@ mod tests {
         assert_eq!(remaining(&model, &dir), 700);
         fs::write(dir.join("model.bin"), &data).unwrap();
         assert_eq!(remaining(&model, &dir), 0);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, data) in entries {
+            writer.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn an_archive_is_unpacked_without_its_top_folder_and_then_removed() {
+        let data = zip_of(&[("pkg/encoder.onnx", b"enc"), ("pkg/sub/decoder.data", b"dec")]);
+        let mut model = model_for(&serve(data.clone(), true), &data);
+        model.files[0].name = "model.zip".into();
+        model.files[0].unzip = true;
+        let dir = temp_dir("unzip");
+        assert!(!file_complete(&dir.join("model.zip"), &model.files[0]));
+        download_model(&model, &dir, &AtomicBool::new(false), |_, _| {}).unwrap();
+        assert_eq!(fs::read(dir.join("encoder.onnx")).unwrap(), b"enc");
+        assert_eq!(fs::read(dir.join("sub").join("decoder.data")).unwrap(), b"dec");
+        assert!(!dir.join("model.zip").exists());
+        assert!(file_complete(&dir.join("model.zip"), &model.files[0]));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_archive_reaching_outside_the_folder_is_refused() {
+        let dir = temp_dir("zipslip");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("bad.zip");
+        fs::write(&archive, zip_of(&[("../escaped.txt", b"x")])).unwrap();
+        assert!(unpack(&archive, &dir.join("model"), &AtomicBool::new(false)).is_err());
+        assert!(!dir.join("escaped.txt").exists());
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -590,6 +687,7 @@ mod tests {
             sha256: None,
             git_sha1: Some("ce013625030ba8dba906f756967f9e9ca394464a".into()),
             mirrors: Vec::new(),
+            unzip: false,
         };
         assert!(hash_matches(&path, &file).unwrap());
         fs::remove_dir_all(&dir).ok();

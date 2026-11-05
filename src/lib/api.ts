@@ -22,6 +22,8 @@ export interface ModelInfo {
   default: boolean;
   custom: boolean;
   installed: boolean;
+  /** Built for the Snapdragon X NPU. */
+  npu: boolean;
 }
 
 export interface Progress {
@@ -37,6 +39,8 @@ export interface ModelsView {
   romanUrdu: boolean;
   /** The word fixer in use, if one is installed. */
   fixer: string | null;
+  /** This PC has an NPU that NPU builds can run on. */
+  npu: boolean;
 }
 
 export interface TranscriptRow {
@@ -112,6 +116,7 @@ export interface Settings {
   smartFormatting: boolean;
   fixMisheardWords: boolean;
   fixAnyWord: boolean;
+  useNpu: boolean;
   learnWords: boolean;
   typingWpm: number;
   keepAudioClips: boolean;

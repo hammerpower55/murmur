@@ -16,6 +16,32 @@ pub struct FixupModel {
     pub dir: PathBuf,
     /// Its chat prompt needs an empty think block (see `CatalogModel`).
     pub thinking: bool,
+    /// The gain "Check every word" needs (see `CatalogModel`).
+    pub open_gain: f32,
+    /// The next installed word fixer, used when this one does not load
+    /// (an NPU build on an NPU it was not compiled for).
+    pub fallback: Option<Box<FixupModel>>,
+}
+
+impl FixupModel {
+    pub fn new(dir: PathBuf, thinking: bool, open_gain: Option<u8>) -> Self {
+        Self {
+            dir,
+            thinking,
+            open_gain: open_gain.map_or(MIN_GAIN_OPEN, f32::from),
+            fallback: None,
+        }
+    }
+
+    /// The first of `models`, falling back to the next.
+    pub fn chain(models: impl DoubleEndedIterator<Item = Self>) -> Option<Self> {
+        models.rev().fold(None, |fallback, model| {
+            Some(Self {
+                fallback: fallback.map(Box::new),
+                ..model
+            })
+        })
+    }
 }
 
 #[derive(Default)]
@@ -92,21 +118,21 @@ impl Fixer {
             let Ok(mut inner) = self.inner.lock() else {
                 return;
             };
-            let Some(dir) = inner.model.as_ref().map(|m| m.dir.clone()) else {
+            let Some(model) = inner.model.clone() else {
                 return;
             };
             if inner.llm.is_some() || inner.loading {
                 return;
             }
             inner.loading = true;
-            (dir, inner.generation)
+            (model, inner.generation)
         };
         let me = Arc::clone(self);
         let spawned = std::thread::Builder::new()
             .name("murmur-fixup-load".into())
             .spawn(move || {
                 let started = Instant::now();
-                let result = Llm::load(&dir, default_threads());
+                let result = Llm::load(&dir.dir, default_threads());
                 let Ok(mut inner) = me.inner.lock() else {
                     return;
                 };
@@ -116,10 +142,23 @@ impl Fixer {
                 inner.loading = false;
                 match result {
                     Ok(llm) => {
-                        log::info!("fix-up model ready in {} ms", started.elapsed().as_millis());
+                        log::info!(
+                            "fix-up model ready in {} ms on the {}",
+                            started.elapsed().as_millis(),
+                            if llm.on_npu() { "NPU" } else { "CPU" }
+                        );
                         inner.llm = Some(Arc::new(llm));
                     }
-                    Err(err) => log::error!("could not load the fix-up model: {err:#}"),
+                    Err(err) => {
+                        log::error!("could not load the fix-up model: {err:#}");
+                        if let Some(fallback) = dir.fallback {
+                            log::info!("falling back to {}", fallback.dir.display());
+                            inner.model = Some(*fallback);
+                            inner.generation += 1;
+                            drop(inner);
+                            me.wake();
+                        }
+                    }
                 }
             });
         if spawned.is_err() {
@@ -147,13 +186,16 @@ impl Fixer {
         if !ctx.any_word && fixup::candidates(transcript, ctx).is_empty() {
             return None;
         }
-        let llm = self.inner.lock().ok()?.llm.clone();
+        let (llm, open_gain) = {
+            let inner = self.inner.lock().ok()?;
+            (inner.llm.clone(), inner.model.as_ref().map_or(MIN_GAIN_OPEN, |m| m.open_gain))
+        };
         let Some(llm) = llm else {
             log::info!("fix-up model not loaded yet, pasting as heard");
             return None;
         };
         let started = Instant::now();
-        match rescore(&llm, transcript, ctx) {
+        match rescore(&llm, transcript, ctx, open_gain) {
             Ok((found, notes)) => {
                 log::info!(
                     "fix-up in {} ms, {} applied: {}",
@@ -211,6 +253,8 @@ fn open_checkable(transcript: &str, start: usize, end: usize, known: &[String]) 
     word.chars().count() >= 2
         && word.chars().all(|c| c.is_alphabetic() || c == '\'')
         && !crate::text::stopwords::is_stopword(word)
+        // Fillers are removed after the fixer runs ("Um" once became "Im").
+        && !crate::text::fillers::is_hesitation(word)
         && (sentence_start || !word.chars().next().is_some_and(char::is_uppercase))
         && !known.contains(&word.to_lowercase())
 }
@@ -243,9 +287,12 @@ pub struct Rescore {
 /// words (fixup::candidates) by scoring the text both ways in context, and
 /// swaps it only if the user's word makes the text much more likely. Returns
 /// the swaps and a note on every candidate.
-fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Rescore>, Vec<String>)> {
+fn rescore(llm: &Llm, transcript: &str, ctx: &Context, open_gain: f32) -> anyhow::Result<(Vec<Rescore>, Vec<String>)> {
     let mut notes = Vec::new();
-    if crate::text::stopwords::roman_urdu_words(transcript) >= 2 {
+    // One word that is only Roman Urdu is enough: an English model that
+    // mishears Urdu makes nonsense the fixer would only make worse ("Such
+    // memo ji but a gallery" became "smaller").
+    if crate::text::stopwords::roman_urdu_words(transcript) >= 1 {
         notes.push("Roman Urdu, left as heard".into());
         return Ok((Vec::new(), notes));
     }
@@ -318,7 +365,7 @@ fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Re
             let piece = llm.token_text(token);
             let meant = piece.trim();
             if spaced(s) != piece.starts_with(' ')
-                || meant.chars().count() < 2
+                || meant.chars().count() < 3
                 || !meant.chars().all(|c| c.is_alphabetic() || c == '\'')
                 || meant.eq_ignore_ascii_case(heard)
                 || !fixup::sounds_alike(heard, meant)
@@ -331,7 +378,7 @@ fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Re
                 tokens: (t0, t1),
                 meant: meant.to_string(),
                 alternative: vec![token],
-                needed: MIN_GAIN_OPEN,
+                needed: open_gain,
             });
             found += 1;
             if found == MAX_OPEN_CANDIDATES {
@@ -364,6 +411,28 @@ fn rescore(llm: &Llm, transcript: &str, ctx: &Context) -> anyhow::Result<(Vec<Re
     Ok((kept, notes))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_word_fixer_falls_back_to_the_next_in_order() {
+        let m = FixupModel::chain(
+            [("npu", false, Some(10)), ("4b", false, None), ("1.7b", true, None)]
+                .into_iter()
+                .map(|(d, t, g)| FixupModel::new(PathBuf::from(d), t, g)),
+        )
+        .unwrap();
+        assert_eq!(m.dir, PathBuf::from("npu"));
+        assert_eq!((m.open_gain, m.fallback.as_ref().unwrap().open_gain), (10.0, MIN_GAIN_OPEN));
+        let next = m.fallback.unwrap();
+        assert_eq!(next.dir, PathBuf::from("4b"));
+        let last = next.fallback.unwrap();
+        assert!(last.thinking && last.fallback.is_none());
+        assert!(FixupModel::chain(std::iter::empty()).is_none());
+    }
+}
+
 /// Runs the fix-up model on misheard transcripts, on traps where a context
 /// word sounds alike but is wrong, and on the local history, printing every
 /// change. Needs the model installed:
@@ -382,7 +451,7 @@ mod eval {
             before: before.into(),
             earlier: earlier.into(),
             vocabulary: Vec::new(),
-            any_word: std::env::var_os("MURMUR_FIXUP_ANY").is_some(),
+            any_word: std::env::var_os("MURMUR_FIXUP_ANY").is_some_and(|v| !v.is_empty()),
         }
     }
 
@@ -485,9 +554,12 @@ mod eval {
         let started = Instant::now();
         let llm = Llm::load(&onnx::installed_model_dir(&id), default_threads()).unwrap();
         println!("\n{id} loaded in {} ms", started.elapsed().as_millis());
+        let open_gain = crate::models::catalog::find(&id)
+            .and_then(|m| m.open_gain)
+            .map_or(MIN_GAIN_OPEN, f32::from);
 
         let fix = |heard: &str, ctx: &Context| -> (String, String) {
-            let (found, notes) = rescore(&llm, heard, ctx).unwrap();
+            let (found, notes) = rescore(&llm, heard, ctx, open_gain).unwrap();
             let edits: Vec<_> = found.iter().map(|r| (r.start, r.end, r.meant.clone())).collect();
             (fixup::apply_at(heard, &edits), notes.join(" | "))
         };

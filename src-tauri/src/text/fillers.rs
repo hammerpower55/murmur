@@ -26,7 +26,7 @@ pub fn remove(tokens: Vec<Token>) -> Vec<Token> {
 /// um, uh, uhm, er, erm, ah, hmm, mm, including stretched forms like
 /// "ummm" or "hmmm". Squeezing repeated letters makes "umbrella" or
 /// "summer" safe: they never squeeze down to a bare hesitation.
-fn is_hesitation(word: &str) -> bool {
+pub fn is_hesitation(word: &str) -> bool {
     let w = word.to_lowercase();
     let mut squeezed = String::new();
     for c in w.chars() {

@@ -70,6 +70,9 @@ pub struct Settings {
     pub fix_any_word: bool,
     /// Add names and terms the user corrects to the dictionary.
     pub learn_words: bool,
+    /// Run NPU builds of models on a Snapdragon X NPU when there is one;
+    /// off, or on any other PC, everything runs on the CPU.
+    pub use_npu: bool,
     pub typing_wpm: u32,
     // Privacy
     pub keep_audio_clips: bool,
@@ -101,6 +104,7 @@ impl Default for Settings {
             fix_misheard_words: true,
             fix_any_word: false,
             learn_words: true,
+            use_npu: true,
             typing_wpm: 40,
             keep_audio_clips: false,
         }
@@ -273,7 +277,7 @@ mod tests {
         assert!(!s.keep_audio_clips);
         assert!(s.remove_fillers && s.add_trailing_space && !s.voice_punctuation);
         assert!(s.smart_formatting);
-        assert!(s.fix_misheard_words && s.learn_words && !s.fix_any_word);
+        assert!(s.fix_misheard_words && s.learn_words && !s.fix_any_word && s.use_npu);
         assert!(s.validate().is_ok());
     }
 
