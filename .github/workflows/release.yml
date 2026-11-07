@@ -109,7 +109,8 @@ jobs:
           & "C:\Program Files\7-Zip\7z.exe" x -y "-o$payload" $setup.FullName | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Could not unpack the installer" }
           Remove-Item -Recurse -Force (Join-Path $payload '$PLUGINSDIR')
-          ./scripts/verify_arm64.ps1 $payload
+          # uninstall.exe is NSIS's x86 uninstaller stub, allowed like setup.
+          ./scripts/verify_arm64.ps1 -AllowX86Installer $payload
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')

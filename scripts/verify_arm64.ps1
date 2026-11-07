@@ -3,9 +3,9 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/verify_arm64.ps1 <file or folder> ...
 #
-# Pass -AllowX86Installer to accept a 32 bit x86 NSIS installer stub: NSIS
-# ships no ARM64 stub, so the setup and uninstall wrappers are x86 while
-# everything they install must still be ARM64.
+# Pass -AllowX86Installer to accept the 32 bit x86 NSIS stubs (*-setup.exe
+# and the uninstall.exe it installs): NSIS ships no ARM64 stub, so the setup
+# and uninstall wrappers are x86 while everything else must still be ARM64.
 
 param(
     [Parameter(Mandatory = $true, ValueFromRemainingArguments = $true)]
@@ -44,7 +44,7 @@ $stubs = 0
 foreach ($f in $files) {
     $machine = Get-Machine $f.FullName
     $name = if ($null -eq $machine) { "not a PE file" } elseif ($Machines.ContainsKey($machine)) { $Machines[$machine] } else { "0x{0:X4}" -f $machine }
-    $ok = $machine -eq 0xAA64 -or ($AllowX86Installer -and $machine -eq 0x014C -and $f.Name -like "*-setup.exe")
+    $ok = $machine -eq 0xAA64 -or ($AllowX86Installer -and $machine -eq 0x014C -and ($f.Name -like "*-setup.exe" -or $f.Name -eq "uninstall.exe"))
     Write-Output ("{0,-8} {1,-8} {2}" -f $(if ($ok) { "ok" } else { "FAIL" }), $name, $f.FullName)
     if (-not $ok) { $bad++ }
     elseif ($machine -ne 0xAA64) { $stubs++ }
