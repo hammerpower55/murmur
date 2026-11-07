@@ -127,8 +127,9 @@ jobs:
 
   macos:
     if: github.event_name == 'push' || inputs.platforms != 'windows'
-    # macos-14 runs on Apple Silicon (M1): native arm64, no Rosetta.
-    runs-on: macos-14
+    # macos-15 runs on Apple Silicon: native arm64, no Rosetta. (GitHub
+    # stopped accepting macos-14 jobs in November 2026.)
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
