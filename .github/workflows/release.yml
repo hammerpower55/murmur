@@ -24,6 +24,11 @@ on:
         type: choice
         options: [both, windows, macos]
         default: both
+      models:
+        description: Mac models to run in the built app (one is Moonshine Tiny)
+        type: choice
+        options: [one, all]
+        default: one
 
 permissions:
   contents: write
@@ -104,12 +109,12 @@ jobs:
             dist-release
           # What the installer installs. $PLUGINSDIR holds NSIS's own x86
           # plugins, which run inside the x86 setup stub and are never installed.
+          # uninstall.exe is NSIS's x86 uninstaller stub, allowed like setup.
           $payload = "$env:RUNNER_TEMP\installer-payload"
           $setup = Get-ChildItem src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           & "C:\Program Files\7-Zip\7z.exe" x -y "-o$payload" $setup.FullName | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Could not unpack the installer" }
           Remove-Item -Recurse -Force (Join-Path $payload '$PLUGINSDIR')
-          # uninstall.exe is NSIS's x86 uninstaller stub, allowed like setup.
           ./scripts/verify_arm64.ps1 -AllowX86Installer $payload
 
       - name: Attach to the release
@@ -189,6 +194,39 @@ jobs:
           bash scripts/verify_arm64.sh "$RUNNER_TEMP/dmg"
           hdiutil detach "$RUNNER_TEMP/dmg"
           codesign --verify --deep --strict --verbose=2 "$bundle"/macos/*.app
+
+      # Loads and runs ONNX models with the built, signed app (selftest.rs),
+      # so a model family that compiles but cannot load in the bundle fails
+      # here. "all" covers every ONNX engine; tags run Moonshine Tiny (32 MB).
+      - name: Run models in the built app
+        run: |
+          app="$(ls -d src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app)"
+          exe="$(ls "$app"/Contents/MacOS/* | head -1)"
+          codesign -d --entitlements - "$app"
+          clip="$RUNNER_TEMP/clip.wav"
+          say -o "$RUNNER_TEMP/clip.aiff" "Please send the quarterly report to the finance team by Friday afternoon."
+          afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/clip.aiff" "$clip"
+          models="moonshine-tiny"
+          if [ "${{ inputs.models }}" = "all" ]; then
+            models="$models parakeet-tdt-0.6b-v2 parakeet-unified-en-0.6b sensevoice-small qwen3-1.7b-int4"
+            # Signed the way it was before Entitlements.plist, to show why
+            # the entitlements are there.
+            plain="$RUNNER_TEMP/without-entitlements.app"
+            cp -R "$app" "$plain"
+            codesign --force --deep --options runtime --sign - "$plain"
+            "$plain/Contents/MacOS/$(basename "$exe")" --check-model moonshine-tiny "$clip" ||
+              echo "without the entitlements: failed, as expected"
+          fi
+          failed=""
+          for id in $models; do
+            echo "::group::$id"
+            "$exe" --check-model "$id" "$clip" || failed="$failed $id"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::did not run:$failed"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

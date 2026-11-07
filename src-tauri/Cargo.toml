@@ -49,6 +49,8 @@ tauri-plugin-dialog = "2.8.4"
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 half = "2.7.1"
 zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
+# Reads the clip for `--check-model` (selftest.rs).
+hound = "3.5.1"
 
 
 [target.'cfg(windows)'.dependencies]
@@ -74,6 +76,3 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
-
-[dev-dependencies]
-hound = "3.5.1"

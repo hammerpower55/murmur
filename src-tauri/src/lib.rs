@@ -11,6 +11,7 @@ mod macos;
 mod models;
 mod overlay;
 mod paths;
+mod selftest;
 mod settings;
 mod sound;
 mod text;
@@ -175,6 +176,14 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            // `--check-model`: run one model through the app's own runtime
+            // and paths, print the result and exit (selftest.rs).
+            if let Some((id, clip)) = selftest::requested() {
+                engine::onnx::set_runtime_path(onnxruntime_path(&handle));
+                engine::onnx::set_qnn_dir(qnn_dir(&handle));
+                let code = selftest::run(&paths::models_dir(&handle)?, &id, clip.as_deref());
+                std::process::exit(code);
+            }
             // Window title comes from productName so the name lives in one place.
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title(&app.package_info().name)?;

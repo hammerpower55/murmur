@@ -234,7 +234,7 @@ const MIN_GAIN_DICTIONARY: f32 = 1.5;
 /// "Fix any misheard word": a word the model proposes itself must make the
 /// text this much more likely (e^8, about 3000 times). Lower let "weather"
 /// become "water" (+6.5) and "place" become "face" (+7.1).
-const MIN_GAIN_OPEN: f32 = 8.0;
+pub(crate) const MIN_GAIN_OPEN: f32 = 8.0;
 /// Words less likely than this in context (natural log probability of the
 /// whole word) are the ones checked in that mode.
 const SUSPECT_BELOW: f32 = -5.0;
@@ -287,7 +287,7 @@ pub struct Rescore {
 /// words (fixup::candidates) by scoring the text both ways in context, and
 /// swaps it only if the user's word makes the text much more likely. Returns
 /// the swaps and a note on every candidate.
-fn rescore(llm: &Llm, transcript: &str, ctx: &Context, open_gain: f32) -> anyhow::Result<(Vec<Rescore>, Vec<String>)> {
+pub(crate) fn rescore(llm: &Llm, transcript: &str, ctx: &Context, open_gain: f32) -> anyhow::Result<(Vec<Rescore>, Vec<String>)> {
     let mut notes = Vec::new();
     // One word that is only Roman Urdu is enough: an English model that
     // mishears Urdu makes nonsense the fixer would only make worse ("Such

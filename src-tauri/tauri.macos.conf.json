@@ -26,7 +26,8 @@
         "vendor/onnxruntime-osx-arm64-1.31.0/lib/libonnxruntime.1.31.0.dylib"
       ],
       "signingIdentity": "-",
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist"
     }
   }
 }

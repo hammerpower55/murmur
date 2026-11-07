@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Tauri signs the app with the hardened runtime, whose library
+	     validation refuses libraries without the app's Team ID. The bundled
+	     ONNX Runtime (Contents/Frameworks) is re-signed ad hoc, which has no
+	     Team ID, so without this every ONNX model fails to load. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<!-- The hardened runtime blocks the microphone, and macOS never shows
+	     its permission prompt, unless the app declares it uses audio input. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
