@@ -76,7 +76,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-The first command fetches Microsoft's official ONNX Runtime for Windows ARM64 into `src-tauri/vendor/`, which the Parakeet, Moonshine and SenseVoice engines need.
+The first command fetches Microsoft's official ONNX Runtime for Windows ARM64 into `src-tauri/vendor/`, which the Parakeet, Moonshine and SenseVoice engines need. Pass `-Arch x64` for the local x64 build described below.
 
 Release build, installer and portable zip:
 
@@ -97,6 +97,8 @@ pnpm tauri build --target aarch64-apple-darwin --bundles app,dmg
 ```
 
 `scripts/macos_env.sh` overrides the Windows settings in `.cargo/config.toml`; source it in every shell you build from.
+
+On an Intel or AMD Windows machine there is a local development build, for testing on hardware that is not ARM64. It runs the same source, needs its own portable toolchain and is never released: `docs/x64-local.md` has the setup and the exact commands.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml` on a Windows ARM64 runner and an Apple Silicon macOS runner, which build the installer, the portable zip and the disk image and attach them to a GitHub release.
 

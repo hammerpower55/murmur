@@ -1,15 +1,28 @@
-# Fetches Microsoft's official ONNX Runtime for Windows ARM64 into
+# Fetches Microsoft's official ONNX Runtime for Windows into
 # src-tauri/vendor/ (git-ignored). The Parakeet, Moonshine and SenseVoice
 # engines load onnxruntime.dll from there at run time.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts/fetch_onnxruntime.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts/fetch_onnxruntime.ps1 [-Arch arm64|x64]
 #
-# Pure win-arm64 build only: the win-arm64x package also contains x64 code.
+# arm64 is the released target and the default; x64 exists only for local
+# builds on Intel/AMD machines and is never shipped. Each zip is fetched by
+# its own name, never the arm64x package, which contains both.
+
+param(
+    [ValidateSet("arm64", "x64")]
+    [string]$Arch = "arm64"
+)
 
 $ErrorActionPreference = "Stop"
 $Version = "1.31.0"
-$Sha256 = "ef6206fa8d6975878d93a97035d280240ce5764c126a7430e5427e18923316d5"
-$Name = "onnxruntime-win-arm64-$Version"
+
+# SHA-256 of the GitHub release assets at v1.31.0.
+$Sha256 = @{
+    "arm64" = "ef6206fa8d6975878d93a97035d280240ce5764c126a7430e5427e18923316d5"
+    "x64"   = "3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195"
+}[$Arch]
+
+$Name = "onnxruntime-win-$Arch-$Version"
 $Url = "https://github.com/microsoft/onnxruntime/releases/download/v$Version/$Name.zip"
 
 $Vendor = Join-Path $PSScriptRoot "..\src-tauri\vendor"
@@ -33,6 +46,6 @@ if ($Actual -ne $Sha256) {
 
 Expand-Archive $Zip -DestinationPath $Vendor -Force
 Remove-Item $Zip
-# Debug symbols are 430 MB and not needed to build or run.
+# Debug symbols are hundreds of MB and not needed to build or run.
 Get-ChildItem $Target -Recurse -Filter *.pdb | Remove-Item
-Write-Output "ONNX Runtime $Version ready in $Target"
+Write-Output "ONNX Runtime $Version ($Arch) ready in $Target"

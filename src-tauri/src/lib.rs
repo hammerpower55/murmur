@@ -59,17 +59,26 @@ fn onnxruntime_path(app: &AppHandle) -> PathBuf {
 /// fall back to the copy scripts/fetch_onnxruntime.ps1 puts in vendor/.
 #[cfg(windows)]
 fn onnxruntime_path(app: &AppHandle) -> PathBuf {
-    let bundled = app
-        .path()
-        .resource_dir()
-        .map(|dir| dir.join("onnxruntime.dll"))
-        .ok()
-        .filter(|p| p.is_file());
+    let bundled = app.path().resource_dir().ok().and_then(|dir| {
+        let beside = dir.join("onnxruntime.dll");
+        if beside.is_file() {
+            return Some(beside);
+        }
+        // Local x64 builds carry the runtime under its vendor folder
+        // (tauri.x64.conf.json), so the tree keeps its own name.
+        let nested = dir
+            .join("vendor")
+            .join(engine::onnx::VENDORED_RUNTIME)
+            .join("lib/onnxruntime.dll");
+        nested.is_file().then_some(nested)
+    });
     #[cfg(debug_assertions)]
     let bundled = bundled.or_else(|| {
         Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("vendor/onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"),
+                .join("vendor")
+                .join(engine::onnx::VENDORED_RUNTIME)
+                .join("lib/onnxruntime.dll"),
         )
     });
     bundled.unwrap_or_else(|| PathBuf::from("onnxruntime.dll"))

@@ -13,6 +13,17 @@ static RUNTIME_PATH: OnceLock<PathBuf> = OnceLock::new();
 static QNN_DIR: OnceLock<PathBuf> = OnceLock::new();
 static NPU: OnceLock<bool> = OnceLock::new();
 
+/// The vendored ONNX Runtime folder whose name matches this build's
+/// architecture (scripts/fetch_onnxruntime.ps1 fetches either one).
+#[cfg(windows)]
+// Read by debug builds (lib.rs) and by the test helper below.
+#[allow(dead_code)]
+pub const VENDORED_RUNTIME: &str = if cfg!(target_arch = "aarch64") {
+    "onnxruntime-win-arm64-1.31.0"
+} else {
+    "onnxruntime-win-x64-1.31.0"
+};
+
 /// The QNN plugin's name, and the execution provider name it reports.
 const QNN_EP: &str = "QNNExecutionProvider";
 const QNN_PLUGIN: &str = "onnxruntime_providers_qnn.dll";
@@ -166,7 +177,7 @@ pub fn argmax(values: &[f32]) -> usize {
 pub fn use_vendored_runtime() {
     let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor");
     #[cfg(windows)]
-    set_runtime_path(vendor.join("onnxruntime-win-arm64-1.31.0/lib/onnxruntime.dll"));
+    set_runtime_path(vendor.join(VENDORED_RUNTIME).join("lib/onnxruntime.dll"));
     #[cfg(target_os = "macos")]
     set_runtime_path(vendor.join("onnxruntime-osx-arm64-1.31.0/lib/libonnxruntime.1.31.0.dylib"));
     set_qnn_dir(vendor.join("onnxruntime-qnn-2.7.0"));
