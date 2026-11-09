@@ -17,8 +17,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
-    SWP_NOACTIVATE, SWP_NOOWNERZORDER, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT,
+    SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 use crate::settings::OverlayPosition;
@@ -85,9 +85,30 @@ impl OverlayWindow {
         }
     }
 
+    /// Back to the top of the always on top windows, without moving or
+    /// activating it. The window can sink below ordinary windows while Windows
+    /// still reports it as topmost, which hides the pill behind anything large.
+    /// Async, so a busy UI thread can never hold up the pill.
+    fn raise(&self) -> Result<()> {
+        // SAFETY: plain SetWindowPos on our own window; no activation.
+        unsafe {
+            SetWindowPos(
+                self.handle(),
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS,
+            )
+        }
+        .context("could not raise the overlay")
+    }
+
     /// Places the capsule on the monitor under the mouse: by default centred,
     /// its bottom edge 12 px above the taskbar. Only moves when the target
-    /// rectangle changed, so the webview is not resized on every dictation.
+    /// rectangle changed, so the webview is not resized on every dictation,
+    /// but always puts it back on top.
     pub fn place_on_cursor_monitor(&self) -> Result<()> {
         let position = self
             .position
@@ -100,7 +121,7 @@ impl OverlayWindow {
             .lock()
             .map_err(|_| anyhow::anyhow!("overlay lock poisoned"))?;
         if placed.is_some_and(|r| r == target) {
-            return Ok(());
+            return self.raise();
         }
         // Twice: moving onto a monitor with a different DPI makes Windows
         // rescale the window once on arrival; the second call restores the

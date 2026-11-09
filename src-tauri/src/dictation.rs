@@ -401,6 +401,9 @@ impl Controller {
         match effect {
             Effect::None => None,
             Effect::StartCapture => {
+                // Pill first so it shows well inside 100 ms, then the cue,
+                // then the microphone once the cue is under way.
+                self.overlay.recording();
                 // An unloaded model starts loading while the user speaks.
                 self.engine.wake();
                 self.last_used = Instant::now();
@@ -419,9 +422,6 @@ impl Controller {
                         self.around_cursor = Some(field::read_around_cursor());
                     }
                 }
-                // Pill first so it shows well inside 100 ms, then the cue,
-                // then the microphone once the cue is under way.
-                self.overlay.recording();
                 self.sound.play(Cue::Start);
                 std::thread::sleep(START_CUE_LEAD);
                 self.start_capture()
