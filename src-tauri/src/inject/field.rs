@@ -13,6 +13,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use crate::text::context::Around;
 use windows::core::Interface;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
@@ -27,6 +28,8 @@ use windows::Win32::UI::Accessibility::{
 const BEFORE_WORDS: i32 = 120;
 /// Words read on each side of the cursor while watching for corrections.
 const AROUND_WORDS: i32 = 150;
+/// Words read after the cursor to fit a dictation to what follows it.
+const AFTER_WORDS: i32 = 3;
 /// Longest text kept from one read, in characters from the end.
 const MAX_CHARS: usize = 20_000;
 /// UI Automation gives up on an app that does not answer within this.
@@ -45,7 +48,7 @@ pub trait Watcher: Send {
 }
 
 enum Job {
-    Before(Sender<Option<String>>),
+    Around(Sender<Option<Around>>),
     Watch {
         watcher: Box<dyn Watcher>,
         cancel: Arc<AtomicBool>,
@@ -73,12 +76,12 @@ fn send(job: Job) -> bool {
         .is_some_and(|tx| tx.send(job).is_ok())
 }
 
-/// Starts reading the words before the cursor in the focused field. The
-/// answer arrives on the returned channel, or never if the app is slow:
+/// Starts reading the text on each side of the cursor in the focused field.
+/// The answer arrives on the returned channel, or never if the app is slow:
 /// wait on it with a timeout.
-pub fn read_before_cursor() -> Receiver<Option<String>> {
+pub fn read_around_cursor() -> Receiver<Option<Around>> {
     let (tx, rx) = mpsc::channel();
-    send(Job::Before(tx));
+    send(Job::Around(tx));
     rx
 }
 
@@ -106,7 +109,7 @@ fn run(rx: Receiver<Job>) {
             // Answer every request with nothing so callers never wait.
             for job in rx {
                 match job {
-                    Job::Before(reply) => {
+                    Job::Around(reply) => {
                         let _ = reply.send(None);
                     }
                     Job::Watch { watcher, .. } => watcher.end(),
@@ -124,9 +127,13 @@ fn run(rx: Receiver<Job>) {
     }
     for job in rx {
         match job {
-            Job::Before(reply) => {
-                let text = focused(&automation).and_then(|e| read(&e, BEFORE_WORDS, 0));
-                let _ = reply.send(text);
+            Job::Around(reply) => {
+                let around = focused(&automation).and_then(|e| {
+                    let before = read(&e, BEFORE_WORDS, 0)?;
+                    let after = read_after(&e).unwrap_or_default();
+                    Some(Around { before, after })
+                });
+                let _ = reply.send(around);
             }
             Job::Watch {
                 mut watcher,
@@ -196,6 +203,28 @@ fn read(element: &IUIAutomationElement, before: i32, after: i32) -> Option<Strin
     Some(text.chars().skip(skip).collect())
 }
 
+/// A few words after the cursor (after any selection, which the dictation
+/// replaces). Fields with no text pattern report nothing here.
+fn read_after(element: &IUIAutomationElement) -> Option<String> {
+    // SAFETY: UI Automation queries on a live element owned by this thread.
+    unsafe {
+        let pattern = element
+            .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+            .ok()?;
+        let selection = pattern.GetSelection().ok()?;
+        if selection.Length().ok()? == 0 {
+            return None;
+        }
+        let caret = selection.GetElement(0).ok()?;
+        let range = caret.Clone().ok()?;
+        range
+            .MoveEndpointByRange(TextPatternRangeEndpoint_Start, &caret, TextPatternRangeEndpoint_End)
+            .ok()?;
+        let _ = range.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Word, AFTER_WORDS);
+        range.GetText(-1).ok().map(|t| t.to_string())
+    }
+}
+
 unsafe fn around_caret(pattern: &IUIAutomationTextPattern, before: i32, after: i32) -> Option<String> {
     unsafe {
         let selection = pattern.GetSelection().ok()?;
@@ -232,9 +261,9 @@ mod tests {
     #[test]
     #[ignore = "needs a focused text field in another app"]
     fn reads_the_focused_field() {
-        let before = read_before_cursor().recv_timeout(Duration::from_secs(3));
-        println!("before the cursor: {before:?}");
-        assert!(matches!(before, Ok(Some(ref t)) if !t.is_empty()));
+        let around = read_around_cursor().recv_timeout(Duration::from_secs(3));
+        println!("around the cursor: {around:?}");
+        assert!(matches!(around, Ok(Some(ref a)) if !a.before.is_empty()));
     }
 
     struct Collect {

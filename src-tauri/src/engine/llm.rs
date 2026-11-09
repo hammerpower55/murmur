@@ -397,7 +397,19 @@ impl Llm {
     /// to stop. Ends at an end of turn token or after `max_new` tokens. The
     /// model is locked one step at a time, so a dictation can still be
     /// scored while a reply is being written.
-    pub fn generate(&self, prompt: &[u32], max_new: usize, mut on_text: impl FnMut(&str) -> bool) -> Result<String> {
+    pub fn generate(&self, prompt: &[u32], max_new: usize, on_text: impl FnMut(&str) -> bool) -> Result<String> {
+        self.generate_with(prompt, max_new, REPEAT_PENALTY, on_text)
+    }
+
+    /// `generate` with its own repeat penalty (1.0 for none): text that
+    /// repeats names on purpose, like a screenplay, needs a light one.
+    pub fn generate_with(
+        &self,
+        prompt: &[u32],
+        max_new: usize,
+        penalty: f32,
+        mut on_text: impl FnMut(&str) -> bool,
+    ) -> Result<String> {
         let stop: Vec<u32> = ["<|im_end|>", "<|endoftext|>"]
             .iter()
             .filter_map(|t| self.tokenizer.token_to_id(t))
@@ -407,7 +419,7 @@ impl Llm {
         let mut next = 0u32;
         let empty = self.empty_cache()?;
         let mut cache = self.run_with(&mut *lock()?, prompt, &empty, 1, |_, logits| {
-            next = pick(logits, &[]);
+            next = pick(logits, &[], penalty);
         })?;
         while out.len() < max_new && !stop.contains(&next) {
             out.push(next);
@@ -416,7 +428,7 @@ impl Llm {
             }
             let recent = &out[out.len().saturating_sub(RECENT)..];
             cache = self.run_with(&mut *lock()?, &[next], &cache, 1, |_, logits| {
-                next = pick(logits, recent);
+                next = pick(logits, recent, penalty);
             })?;
         }
         self.decode(&out)
@@ -489,14 +501,14 @@ const RECENT: usize = 64;
 const REPEAT_PENALTY: f32 = 1.15;
 
 /// The most likely token, with `recent` tokens penalised.
-fn pick(logits: &[f32], recent: &[u32]) -> u32 {
+fn pick(logits: &[f32], recent: &[u32], penalty: f32) -> u32 {
     let mut best = (0u32, f32::NEG_INFINITY);
     for (i, &x) in logits.iter().enumerate() {
         let x = if recent.contains(&(i as u32)) {
             if x > 0.0 {
-                x / REPEAT_PENALTY
+                x / penalty
             } else {
-                x * REPEAT_PENALTY
+                x * penalty
             }
         } else {
             x
@@ -561,9 +573,10 @@ mod tests {
     #[test]
     fn pick_takes_the_best_and_discourages_repeats() {
         let logits = [1.0f32, 3.0, 2.9];
-        assert_eq!(pick(&logits, &[]), 1);
+        assert_eq!(pick(&logits, &[], REPEAT_PENALTY), 1);
         // 3.0 / 1.15 falls below 2.9.
-        assert_eq!(pick(&logits, &[1]), 2);
+        assert_eq!(pick(&logits, &[1], REPEAT_PENALTY), 2);
+        assert_eq!(pick(&logits, &[1], 1.0), 1);
         assert_eq!(top_k(&logits, 2, 0.0), vec![(1, 3.0), (2, 2.9)]);
     }
 

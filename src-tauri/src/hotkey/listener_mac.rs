@@ -19,7 +19,7 @@ use core_foundation_sys::runloop::{
 };
 
 use super::super::vk_mac::{from_mac, modifier_flag};
-use super::{Combo, ComboTracker, Hook, HotkeyControl, HotkeyEvent, HOOK, MURMUR_INPUT_TAG};
+use super::{ComboTracker, Hook, HotkeyControl, HotkeyEvent, Hotkeys, HOOK, MURMUR_INPUT_TAG};
 use crate::macos::{
     accessibility_trusted, CFMachPortRef, CGEventGetFlags, CGEventGetIntegerValueField,
     CGEventRef, CGEventTapCreate, CGEventTapEnable, CGEventTapProxy, EVENT_FLAGS_CHANGED,
@@ -131,8 +131,7 @@ fn create_tap() -> CFMachPortRef {
 /// Starts the tap on its own thread with its own run loop. `recording`
 /// tells it whether Escape should be captured (only while recording).
 pub fn spawn(
-    main: Combo,
-    toggle: Option<Combo>,
+    hotkeys: Hotkeys,
     recording: Arc<AtomicBool>,
     tx: Sender<(HotkeyEvent, Instant)>,
     control: Arc<HotkeyControl>,
@@ -143,8 +142,9 @@ pub fn spawn(
             HOOK.with(|cell| {
                 let version = control.version.load(Ordering::SeqCst);
                 *cell.borrow_mut() = Some(Hook {
-                    main: ComboTracker::new(main),
-                    toggle: toggle.map(ComboTracker::new),
+                    main: ComboTracker::new(hotkeys.main),
+                    toggle: hotkeys.toggle.map(ComboTracker::new),
+                    script: hotkeys.script.map(ComboTracker::new),
                     escape_held: false,
                     recording,
                     tx,

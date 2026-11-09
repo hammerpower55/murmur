@@ -82,12 +82,23 @@ pub fn log_mel(pcm: &[f32], mels: usize) -> Vec<f32> {
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(N_FFT);
     let mut input = fft.make_input_vec();
     let mut spectrum = fft.make_output_vec();
-    let bank = filters(mels);
+    // Each triangle covers a few bins: keep only those.
+    let bank: Vec<(usize, Vec<f32>)> = filters(mels)
+        .into_iter()
+        .map(|row| {
+            let first = row.iter().position(|&w| w > 0.0).unwrap_or(0);
+            let end = row.iter().rposition(|&w| w > 0.0).map_or(first, |i| i + 1);
+            (first, row[first..end].to_vec())
+        })
+        .collect();
 
-    // The STFT has FRAMES + 1 frames; Whisper drops the last.
-    let mut out = vec![0.0f32; mels * FRAMES];
+    // The STFT has FRAMES + 1 frames; Whisper drops the last. A frame that
+    // starts past the audio sees only zeros, so it is the floor, log10 of
+    // 1e-10; only frames that touch the audio are computed.
+    let mut out = vec![-10.0f32; mels * FRAMES];
     let mut power = vec![0.0f32; BINS];
-    for frame in 0..FRAMES {
+    let touched = (n + pad).div_ceil(HOP).min(FRAMES);
+    for frame in 0..touched {
         let start = frame * HOP;
         for (i, x) in input.iter_mut().enumerate() {
             *x = padded[start + i] * window[i];
@@ -98,8 +109,8 @@ pub fn log_mel(pcm: &[f32], mels: usize) -> Vec<f32> {
         for (p, c) in power.iter_mut().zip(&spectrum) {
             *p = c.norm_sqr();
         }
-        for (m, weights) in bank.iter().enumerate() {
-            let energy: f32 = weights.iter().zip(&power).map(|(w, p)| w * p).sum();
+        for (m, (first, weights)) in bank.iter().enumerate() {
+            let energy: f32 = weights.iter().zip(&power[*first..]).map(|(w, p)| w * p).sum();
             out[m * FRAMES + frame] = energy.max(1e-10).log10();
         }
     }
@@ -135,6 +146,54 @@ mod tests {
         let hz_per_bin = SAMPLE_RATE as f32 / N_FFT as f32;
         let area: f32 = bank[40].iter().sum::<f32>() * hz_per_bin;
         assert!((area - 1.0).abs() < 0.2, "{area}");
+    }
+
+    /// The plain computation: every frame, every bin.
+    fn dense_log_mel(pcm: &[f32], mels: usize) -> Vec<f32> {
+        let mut audio = vec![0.0f32; WINDOW_SAMPLES];
+        audio[..pcm.len()].copy_from_slice(pcm);
+        let pad = N_FFT / 2;
+        let mut padded: Vec<f32> = (1..=pad).rev().map(|i| audio[i]).collect();
+        padded.extend_from_slice(&audio);
+        padded.extend((WINDOW_SAMPLES - 1 - pad..WINDOW_SAMPLES - 1).rev().map(|i| audio[i]));
+        let window: Vec<f32> = (0..N_FFT)
+            .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / N_FFT as f32).cos())
+            .collect();
+        let fft = RealFftPlanner::<f32>::new().plan_fft_forward(N_FFT);
+        let (mut input, mut spectrum) = (fft.make_input_vec(), fft.make_output_vec());
+        let bank = filters(mels);
+        let mut out = vec![0.0f32; mels * FRAMES];
+        for frame in 0..FRAMES {
+            for (i, x) in input.iter_mut().enumerate() {
+                *x = padded[frame * HOP + i] * window[i];
+            }
+            fft.process(&mut input, &mut spectrum).unwrap();
+            let power: Vec<f32> = spectrum.iter().map(|c| c.norm_sqr()).collect();
+            for (m, weights) in bank.iter().enumerate() {
+                let energy: f32 = weights.iter().zip(&power).map(|(w, p)| w * p).sum();
+                out[m * FRAMES + frame] = energy.max(1e-10).log10();
+            }
+        }
+        let top = out.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        out.iter().map(|x| (x.max(top - 8.0) + 4.0) / 4.0).collect()
+    }
+
+    #[test]
+    fn skipping_padding_matches_the_full_computation() {
+        // A sweep with noise, of a length that ends mid frame.
+        let pcm: Vec<f32> = (0..SAMPLE_RATE * 3 + 77)
+            .map(|i| {
+                let t = i as f32 / SAMPLE_RATE as f32;
+                (2.0 * std::f32::consts::PI * (200.0 + 900.0 * t) * t).sin() * 0.3
+                    + ((i * 7919 % 1000) as f32 / 1000.0 - 0.5) * 0.01
+            })
+            .collect();
+        for mels in [80, 128] {
+            let (fast, dense) = (log_mel(&pcm, mels), dense_log_mel(&pcm, mels));
+            let worst = fast.iter().zip(&dense).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "{mels} mels differ by {worst}");
+        }
+        assert_eq!(log_mel(&[], 128), dense_log_mel(&[], 128));
     }
 
     #[test]

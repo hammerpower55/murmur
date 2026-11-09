@@ -9,9 +9,9 @@ const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
   fixup: "Word fixer",
 };
 
-function Dots({ label, value }: { label: string; value: number }) {
+function Dots({ label, value, title }: { label: string; value: number; title: string }) {
   return (
-    <div className="flex items-center gap-2" title={`${label} on this device class`} aria-label={`${label} ${value} of 5 on this device class`}>
+    <div className="flex items-center gap-2" title={title} aria-label={`${label} ${value} of 5. ${title}`}>
       <span className="w-16 text-xs text-zinc-500">{label}</span>
       <span className="flex gap-1">
         {[1, 2, 3, 4, 5].map((i) => (
@@ -23,6 +23,14 @@ function Dots({ label, value }: { label: string; value: number }) {
       </span>
     </div>
   );
+}
+
+/** "About 0.2 s for a 5 s clip on Apple M2, estimated". */
+export function speedTitle(model: ModelInfo, device = "this PC"): string {
+  if (model.clipMs <= 0) return `Speed on ${device} is not known`;
+  const s = model.clipMs / 1000;
+  const time = s < 1 ? s.toFixed(1) : s < 10 ? s.toFixed(1).replace(/\.0$/, "") : Math.round(s).toString();
+  return `About ${time} s for a 5 s clip on ${device}${model.measured ? "" : ", estimated"}`;
 }
 
 const button =
@@ -42,6 +50,8 @@ interface Props {
   onDelete: () => void;
   /** Onboarding shows a lone card without the delete action. */
   compact?: boolean;
+  /** The chip speeds are for, such as "Apple M2 Pro". */
+  device?: string;
   /** The word fixer: whether it is switched on and this is the one in use. */
   on?: boolean;
 }
@@ -110,8 +120,8 @@ export function ModelCard(p: Props) {
 
       {model.accuracy > 0 && (
         <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1">
-          <Dots label="Accuracy" value={model.accuracy} />
-          <Dots label="Speed" value={model.speed} />
+          <Dots label="Accuracy" value={model.accuracy} title="Accuracy on English" />
+          <Dots label="Speed" value={model.speed} title={speedTitle(model, p.device)} />
         </div>
       )}
 

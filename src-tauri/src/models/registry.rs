@@ -9,7 +9,9 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
 use super::catalog::{self, CatalogModel, Family};
-use super::download::file_complete;
+use super::download::{file_complete, repair_unpacked};
+use super::speed;
+use crate::hardware;
 use crate::engine::fixer::FixupModel;
 use crate::engine::onnx::npu_available;
 
@@ -25,7 +27,12 @@ pub struct ModelInfo {
     pub family: Family,
     /// 0 for custom models: unknown.
     pub accuracy: u8,
+    /// 1 to 5 on this PC (0 when unknown).
     pub speed: u8,
+    /// Milliseconds for a 5 s clip on this PC, estimated or measured.
+    pub clip_ms: u32,
+    /// `clip_ms` comes from dictations on this PC, not an estimate.
+    pub measured: bool,
     pub languages: Vec<String>,
     pub languages_label: String,
     pub ram_mb: u32,
@@ -40,12 +47,15 @@ pub struct ModelInfo {
 
 impl ModelInfo {
     fn from_catalog(m: &CatalogModel, installed: bool) -> Self {
+        let clip_ms = speed::estimate(m, hardware::device());
         Self {
             id: m.id.clone(),
             name: m.name.clone(),
             family: m.family,
             accuracy: m.accuracy,
-            speed: m.speed,
+            speed: if m.clip_ms > 0 { speed::dots(clip_ms) } else { 0 },
+            clip_ms,
+            measured: false,
             languages: m.languages.clone(),
             languages_label: m.languages_label.clone(),
             ram_mb: m.ram_mb,
@@ -153,6 +163,8 @@ impl Registry {
                     family: Family::Whisper,
                     accuracy: 0,
                     speed: 0,
+                    clip_ms: 0,
+                    measured: false,
                     languages: vec!["*".into()],
                     languages_label: "Custom Whisper model".into(),
                     ram_mb: 0,
@@ -186,6 +198,11 @@ impl Registry {
             bail!("{} is not downloaded", model.name);
         }
         let dir = self.model_dir(id);
+        for file in &model.files {
+            if let Err(err) = repair_unpacked(&dir, file) {
+                log::warn!("could not repair {id}: {err:#}");
+            }
+        }
         let path = match model.family {
             // NPU builds are folders of ONNX files, like the ONNX engines.
             Family::Whisper if model.npu => dir,

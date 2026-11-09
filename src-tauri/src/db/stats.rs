@@ -23,6 +23,20 @@ pub fn week_start(day: NaiveDate) -> NaiveDate {
 }
 
 impl Db {
+    /// (model id, inference ms, audio ms) of recent dictations, newest
+    /// first, for measuring each model's speed on this PC.
+    pub fn model_timings(&self) -> Result<Vec<(String, u64, u64)>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT model_id, inference_ms, audio_ms FROM transcripts
+             ORDER BY id DESC LIMIT 1000",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64, r.get::<_, i64>(2)?.max(0) as u64))
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     /// Words dictated from Monday through `today`.
     pub fn words_this_week(&self, today: NaiveDate) -> Result<i64> {
         let from = week_start(today).format("%Y-%m-%d").to_string();

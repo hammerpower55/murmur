@@ -9,6 +9,11 @@
 //! compiled for this NPU on its first load and kept as *_compiled.onnx.
 //! Audio over 30 s is transcribed in 30 s pieces. Floats are fp32 or fp16,
 //! whichever the build takes (the precompiled Turbo is fp16 throughout).
+//!
+//! The prompt (`<|startofprev|>` and the Roman Urdu text, about 100 tokens)
+//! is run through the decoder once at load, against the encoding of silence,
+//! and every dictation starts from that cache. Run live it cost about 1.1 s
+//! of each 2.2 s dictation.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -38,6 +43,16 @@ struct Layer {
     v_out: String,
 }
 
+/// Each decoder layer's self attention keys and values.
+type Cache = Vec<(DynValue, DynValue)>;
+
+/// The decoder's self attention cache after the prompt.
+struct PromptCache {
+    cache: Cache,
+    /// Tokens it covers, from the start of the prefix.
+    len: usize,
+}
+
 struct Loaded {
     encoder: Session,
     decoder: Session,
@@ -61,6 +76,7 @@ struct Loaded {
     prev: Option<u32>,
     multilingual: bool,
     prompt: Vec<u32>,
+    prompt_cache: Option<PromptCache>,
     opts: EngineOptions,
 }
 
@@ -155,7 +171,7 @@ impl Loaded {
                 .to_vec(),
             _ => Vec::new(),
         };
-        Ok(Self {
+        let mut loaded = Self {
             encoder,
             decoder,
             mels,
@@ -173,9 +189,34 @@ impl Loaded {
             prev: id("<|startofprev|>"),
             multilingual,
             prompt,
+            prompt_cache: None,
             tokenizer,
             opts: opts.clone(),
-        })
+        };
+        // Tests can turn the cache off to compare it with the live prompt.
+        let live_prompt = cfg!(test) && std::env::var_os("MURMUR_NPU_LIVE_PROMPT").is_some();
+        let prompt_len = loaded.prompt_len();
+        if prompt_len > 0 && !live_prompt {
+            let started = Instant::now();
+            let silence = loaded.encode(&[])?;
+            let prefix = loaded.prefix(None);
+            let (cache, _) = loaded.decode(&silence, None, &prefix[..prompt_len], false)?;
+            loaded.prompt_cache = Some(PromptCache { cache, len: prompt_len });
+            log::info!(
+                "NPU Whisper prompt ({prompt_len} tokens) cached in {} ms",
+                started.elapsed().as_millis()
+            );
+        }
+        Ok(loaded)
+    }
+
+    /// Prefix tokens taken by the prompt: `<|startofprev|>` and its text,
+    /// leaving at least half the positions for the transcript.
+    fn prompt_len(&self) -> usize {
+        match (self.prev, self.prompt.is_empty()) {
+            (Some(_), false) => 1 + self.prompt.len().min(self.positions / 2),
+            _ => 0,
+        }
     }
 
     /// The tokens fed before the model writes: the prompt (as earlier
@@ -184,11 +225,10 @@ impl Loaded {
     /// for the transcript.
     fn prefix(&self, language: Option<&str>) -> Vec<u32> {
         let mut out = Vec::new();
-        if let (Some(prev), false) = (self.prev, self.prompt.is_empty()) {
-            let room = self.positions / 2;
-            let keep = &self.prompt[self.prompt.len().saturating_sub(room)..];
+        let prompt_len = self.prompt_len();
+        if let (Some(prev), true) = (self.prev, prompt_len > 0) {
             out.push(prev);
-            out.extend_from_slice(keep);
+            out.extend_from_slice(&self.prompt[self.prompt.len() + 1 - prompt_len..]);
         }
         out.push(self.sot);
         if self.multilingual {
@@ -206,13 +246,13 @@ impl Loaded {
         out
     }
 
-    /// Text tokens for up to 30 s of audio.
-    fn piece(&mut self, pcm: &[f32], language: Option<&str>) -> Result<Vec<u32>> {
+    /// Each decoder layer's cross attention keys and values for up to 30 s
+    /// of audio.
+    fn encode(&mut self, pcm: &[f32]) -> Result<Vec<(String, DynValue)>> {
         let mel = log_mel(pcm, self.mels);
         let features = floats(vec![1, self.mels, FRAMES], mel, self.features_fp16)?;
         let mut encoded = self.encoder.run(ort::inputs![features])?;
-        let cross: Vec<(String, DynValue)> = self
-            .cross
+        self.cross
             .iter()
             .map(|name| {
                 encoded
@@ -220,22 +260,47 @@ impl Loaded {
                     .map(|v| (name.clone(), v))
                     .with_context(|| format!("encoder did not return {name}"))
             })
-            .collect::<Result<_>>()?;
-        drop(encoded);
+            .collect()
+    }
 
+    /// Runs `tokens` through the decoder, from `start` (a cache and the
+    /// tokens it covers) or from an empty cache. With `write` it then goes
+    /// on greedily until the end token and returns the text tokens written.
+    /// Returns the cache either way.
+    fn decode(
+        &mut self,
+        cross: &[(String, DynValue)],
+        start: Option<&PromptCache>,
+        tokens: &[u32],
+        write: bool,
+    ) -> Result<(Cache, Vec<u32>)> {
         let fp16 = self.fp16;
-        let zeros = |shape: [usize; 4]| floats(shape.to_vec(), vec![0f32; shape.iter().product()], fp16);
-        let mut cache: Vec<(DynValue, DynValue)> = self
-            .layers
-            .iter()
-            .map(|_| Ok((zeros(self.k_shape)?, zeros(self.v_shape)?)))
-            .collect::<Result<_>>()?;
+        let first = start.map_or(0, |c| c.len);
         let mut mask = vec![MASK_NEG; self.positions];
-        let prefix = self.prefix(language);
+        for step in 0..first {
+            mask[self.positions - 1 - step] = 0.0;
+        }
+        // None while the steps still read `start`'s cache.
+        let mut cache: Option<Cache> = match start {
+            Some(_) => None,
+            None => {
+                let zeros = |shape: [usize; 4]| {
+                    floats(shape.to_vec(), vec![0f32; shape.iter().product()], fp16)
+                };
+                Some(
+                    self.layers
+                        .iter()
+                        .map(|_| Ok((zeros(self.k_shape)?, zeros(self.v_shape)?)))
+                        .collect::<Result<_>>()?,
+                )
+            }
+        };
+        let mut token = *tokens.first().context("nothing to decode")?;
+        let last = if write { self.positions - 1 } else { first + tokens.len() };
         let mut out: Vec<u32> = Vec::new();
-        let mut token = prefix[0];
 
-        for step in 0..self.positions - 1 {
+        for step in first..last {
+            let fed = step - first;
             mask[self.positions - 1 - step] = 0.0;
             let mut inputs: Vec<(String, SessionInputValue)> = vec![
                 (
@@ -247,11 +312,16 @@ impl Loaded {
                     floats(vec![1, 1, 1, self.positions], mask.clone(), fp16)?.into(),
                 ),
             ];
-            for (layer, (k, v)) in self.layers.iter().zip(&cache) {
+            let current = match (&cache, start) {
+                (Some(c), _) => c,
+                (None, Some(c)) => &c.cache,
+                (None, None) => bail!("no decoder cache"),
+            };
+            for (layer, (k, v)) in self.layers.iter().zip(current) {
                 inputs.push((layer.k_in.clone(), SessionInputValue::from(k)));
                 inputs.push((layer.v_in.clone(), SessionInputValue::from(v)));
             }
-            for (name, value) in &cross {
+            for (name, value) in cross {
                 inputs.push((name.clone(), SessionInputValue::from(value)));
             }
             inputs.push((
@@ -259,8 +329,9 @@ impl Loaded {
                 Tensor::from_array(([1usize], vec![step as i32]))?.into(),
             ));
             let mut result = self.decoder.run(inputs)?;
-            let next = if step + 1 < prefix.len() {
-                prefix[step + 1]
+            let feeding = fed + 1 < tokens.len();
+            let next = if feeding || !write {
+                tokens.get(fed + 1).copied().unwrap_or(self.eot)
             } else {
                 let logits: Vec<f32> = if fp16 {
                     let (_, l) = result["logits"].try_extract_tensor::<f16>()?;
@@ -281,16 +352,21 @@ impl Loaded {
                 }
                 best.0
             };
-            cache = self
-                .layers
-                .iter()
-                .map(|layer| {
-                    let k = result.remove(&layer.k_out).with_context(|| format!("decoder did not return {}", layer.k_out))?;
-                    let v = result.remove(&layer.v_out).with_context(|| format!("decoder did not return {}", layer.v_out))?;
-                    Ok((k, v))
-                })
-                .collect::<Result<_>>()?;
-            if step + 1 >= prefix.len() {
+            cache = Some(
+                self.layers
+                    .iter()
+                    .map(|layer| {
+                        let k = result
+                            .remove(&layer.k_out)
+                            .with_context(|| format!("decoder did not return {}", layer.k_out))?;
+                        let v = result
+                            .remove(&layer.v_out)
+                            .with_context(|| format!("decoder did not return {}", layer.v_out))?;
+                        Ok((k, v))
+                    })
+                    .collect::<Result<_>>()?,
+            );
+            if write && !feeding {
                 if next == self.eot {
                     break;
                 }
@@ -298,6 +374,25 @@ impl Loaded {
             }
             token = next;
         }
+        Ok((cache.context("nothing was decoded")?, out))
+    }
+
+    /// Text tokens for up to 30 s of audio.
+    fn piece(&mut self, pcm: &[f32], language: Option<&str>) -> Result<Vec<u32>> {
+        let started = Instant::now();
+        let cross = self.encode(pcm)?;
+        let encoded = started.elapsed().as_millis();
+        let prefix = self.prefix(language);
+        let cached = self.prompt_cache.take();
+        let from = cached.as_ref().map_or(0, |c| c.len);
+        let result = self.decode(&cross, cached.as_ref(), &prefix[from..], true);
+        self.prompt_cache = cached;
+        let (_, out) = result?;
+        log::debug!(
+            "NPU Whisper: mel and encoder {encoded} ms, {} decoder steps in {} ms",
+            prefix.len() - from + out.len(),
+            started.elapsed().as_millis() - encoded
+        );
         Ok(out)
     }
 }
@@ -329,6 +424,12 @@ impl SpeechEngine for WhisperNpuEngine {
 
     fn is_loaded(&self) -> bool {
         self.loaded.is_some()
+    }
+
+    /// The QNN contexts are mapped from the model files (about 0.1 GB is
+    /// Murmur's own), and loading them again took up to 20 s.
+    fn stays_loaded_when_idle(&self) -> bool {
+        true
     }
 
     fn transcribe(&self, pcm16k_mono: &[f32], language: Option<&str>) -> Result<Transcript> {
@@ -382,6 +483,69 @@ impl SpeechEngine for WhisperNpuEngine {
 mod probe {
     use super::*;
     use crate::engine::onnx;
+
+    /// Loads Turbo with something else on the NPU first, or just before.
+    #[test]
+    #[ignore = "needs the installed NPU builds"]
+    fn npu_whisper_loads_beside_other_npu_models() {
+        onnx::use_vendored_runtime();
+        let turbo = onnx::installed_model_dir("whisper-large-v3-turbo-npu");
+        let opts = EngineOptions {
+            initial_prompt: Some(super::super::whisper::ROMAN_URDU_PROMPT.to_string()),
+            ..EngineOptions::default()
+        };
+        let silence = vec![0f32; 16_000];
+        let mut distil = WhisperNpuEngine::new();
+        distil.load(&onnx::installed_model_dir("distil-whisper-small-en-npu"), &EngineOptions::default()).unwrap();
+        distil.unload();
+        let mut engine = WhisperNpuEngine::new();
+        let after_distil = engine.load(&turbo, &opts);
+        println!("after Distil: {after_distil:?}");
+        after_distil.unwrap();
+        engine.unload();
+        let llm = crate::engine::llm::Llm::load(&onnx::installed_model_dir("qwen2.5-1.5b-instruct-npu"), 4).unwrap();
+        println!("Qwen on the NPU: {}", llm.on_npu());
+        let mut engine = WhisperNpuEngine::new();
+        let beside_qwen = engine.load(&turbo, &opts);
+        println!("beside Qwen: {beside_qwen:?}");
+        beside_qwen.unwrap();
+        engine.transcribe(&silence, Some("en")).unwrap();
+        drop(llm);
+        engine.unload();
+    }
+
+    /// What "Use" does in a running app: load, close, load again, and whether
+    /// the files can be deleted between the two.
+    #[test]
+    #[ignore = "needs the installed NPU Whisper builds"]
+    fn npu_whisper_reloads_in_one_process() {
+        onnx::use_vendored_runtime();
+        let dir = onnx::installed_model_dir("whisper-large-v3-turbo-npu");
+        let opts = EngineOptions {
+            initial_prompt: Some(super::super::whisper::ROMAN_URDU_PROMPT.to_string()),
+            ..EngineOptions::default()
+        };
+        let silence = vec![0f32; 16_000];
+        let mut engine = WhisperNpuEngine::new();
+        engine.load(&dir, &opts).unwrap();
+        engine.transcribe(&silence, Some("en")).unwrap();
+        engine.unload();
+        // A file the process still has mapped cannot be opened for delete.
+        let bin = dir.join("decoder.bin");
+        let locked = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&bin)
+            .map(|_| false)
+            .unwrap_or(true);
+        println!("decoder.bin locked after unload: {locked}");
+        let mut again = WhisperNpuEngine::new();
+        let second = again.load(&dir, &opts);
+        println!("second load: {second:?}");
+        second.unwrap();
+        again.transcribe(&silence, Some("en")).unwrap();
+        again.unload();
+        assert!(!locked, "decoder.bin stayed locked after unload");
+    }
 
     #[test]
     #[ignore = "needs an NPU Whisper build and the fixture clips"]

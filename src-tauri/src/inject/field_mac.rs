@@ -16,11 +16,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::macos::Element;
+use crate::text::context::Around;
 
 /// Words read before the cursor for context.
 const BEFORE_WORDS: usize = 120;
 /// Words read on each side of the cursor while watching for corrections.
 const AROUND_WORDS: usize = 150;
+/// Words read after the cursor to fit a dictation to what follows it.
+const AFTER_WORDS: usize = 3;
 /// Longest text kept from one read, in characters from the end.
 const MAX_CHARS: usize = 20_000;
 /// Characters asked for per word wanted, so the word count fits.
@@ -41,7 +44,7 @@ pub trait Watcher: Send {
 }
 
 enum Job {
-    Before(Sender<Option<String>>),
+    Around(Sender<Option<Around>>),
     Watch {
         watcher: Box<dyn Watcher>,
         cancel: Arc<AtomicBool>,
@@ -69,12 +72,12 @@ fn send(job: Job) -> bool {
         .is_some_and(|tx| tx.send(job).is_ok())
 }
 
-/// Starts reading the words before the cursor in the focused field. The
-/// answer arrives on the returned channel, or never if the app is slow:
+/// Starts reading the text on each side of the cursor in the focused field.
+/// The answer arrives on the returned channel, or never if the app is slow:
 /// wait on it with a timeout.
-pub fn read_before_cursor() -> Receiver<Option<String>> {
+pub fn read_around_cursor() -> Receiver<Option<Around>> {
     let (tx, rx) = mpsc::channel();
-    send(Job::Before(tx));
+    send(Job::Around(tx));
     rx
 }
 
@@ -97,7 +100,7 @@ fn run(rx: Receiver<Job>) {
         let Some(system) = &system else {
             // Answer every request with nothing so callers never wait.
             match job {
-                Job::Before(reply) => {
+                Job::Around(reply) => {
                     let _ = reply.send(None);
                 }
                 Job::Watch { watcher, .. } => watcher.end(),
@@ -105,9 +108,13 @@ fn run(rx: Receiver<Job>) {
             continue;
         };
         match job {
-            Job::Before(reply) => {
-                let text = focused(system).and_then(|e| read(&e, BEFORE_WORDS, 0));
-                let _ = reply.send(text);
+            Job::Around(reply) => {
+                let around = focused(system).and_then(|e| {
+                    let before = read(&e, BEFORE_WORDS, 0)?;
+                    let after = read_after(&e).unwrap_or_default();
+                    Some(Around { before, after })
+                });
+                let _ = reply.send(around);
             }
             Job::Watch {
                 mut watcher,
@@ -167,6 +174,23 @@ fn read(element: &Element, before: usize, after: usize) -> Option<String> {
     };
     let skip = text.chars().count().saturating_sub(MAX_CHARS);
     Some(text.chars().skip(skip).collect())
+}
+
+/// A few words after the cursor and any selection, which the dictation
+/// replaces.
+fn read_after(element: &Element) -> Option<String> {
+    let (caret, selected) = element.range("AXSelectedTextRange")?;
+    let from = caret + selected;
+    let total = element.number("AXNumberOfCharacters").map(|n| n.max(0) as usize);
+    let want = match total {
+        Some(total) => (AFTER_WORDS * CHARS_PER_WORD).min(total.saturating_sub(from)),
+        None => AFTER_WORDS * CHARS_PER_WORD,
+    };
+    if want == 0 {
+        return Some(String::new());
+    }
+    let text = element.string_for_range(from, want)?;
+    Some(first_words(&text, AFTER_WORDS).to_string())
 }
 
 fn around(element: &Element, caret: usize, before: usize, after: usize) -> Option<String> {
@@ -284,7 +308,7 @@ mod tests {
     #[test]
     #[ignore = "needs a focused text field in another app"]
     fn reads_the_focused_field() {
-        let before = read_before_cursor().recv_timeout(Duration::from_secs(3));
+        let before = read_around_cursor().recv_timeout(Duration::from_secs(3)).map(|a| a.map(|a| a.before));
         println!("before the cursor: {before:?}");
         assert!(matches!(before, Ok(Some(ref t)) if !t.is_empty()));
     }

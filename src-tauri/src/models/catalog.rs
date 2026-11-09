@@ -50,7 +50,10 @@ pub struct CatalogModel {
     pub family: Family,
     /// 1 to 5, relative to the other models on this device class.
     pub accuracy: u8,
-    pub speed: u8,
+    /// Milliseconds to transcribe a 5 s clip on the reference Snapdragon X
+    /// Plus (10 cores, AC power); 0 for word fixers. `models::speed`
+    /// scales it for the PC Murmur runs on.
+    pub clip_ms: u32,
     /// Language codes, or ["*"] for multilingual Whisper models.
     pub languages: Vec<String>,
     pub languages_label: String,
@@ -174,16 +177,16 @@ mod tests {
         // The word fixer has no speech ratings.
         for m in catalog().into_iter().filter(|m| m.family.is_speech()) {
             assert!((1..=5).contains(&m.accuracy), "{}", m.id);
-            assert!((1..=5).contains(&m.speed), "{}", m.id);
+            assert!(m.clip_ms > 0, "{} has no clip time", m.id);
         }
     }
 
     #[test]
-    fn slow_models_say_so() {
-        assert_eq!(
-            find("whisper-large-v3-q5").and_then(|m| m.note).as_deref(),
-            Some("Slow on this device")
-        );
+    fn slow_models_are_slow_on_the_reference_pc() {
+        // The page says "Slow on this device" from the time for this PC.
+        let slow = find("whisper-large-v3-q5").unwrap();
+        assert!(slow.clip_ms > crate::models::speed::SLOW_MS);
+        assert!(find("parakeet-tdt-0.6b-v2").unwrap().clip_ms < crate::models::speed::SLOW_MS);
     }
 
     #[test]

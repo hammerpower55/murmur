@@ -130,8 +130,36 @@ fn phrase(tokens: &[Token], i: usize, phrase: &str) -> Option<usize> {
 
 // 1. Backtrack
 
-const SCRATCH: &[&str] = &["scratch that", "strike that", "delete that", "forget that", "never mind"];
-const CORRECTIONS: &[&str] = &["no wait", "or rather", "i mean", "make that", "actually", "sorry", "no", "wait", "rather"];
+/// Always mean "drop that", except before a word that makes them literal.
+const SCRATCH: &[&str] = &["scratch that", "strike that"];
+const SCRATCH_LITERAL: &[&str] = &["itch", "off", "out", "card", "deal", "pad", "from"];
+/// Only a command standing alone between pauses: "don't forget that we have a
+/// meeting" and "please delete that file" keep every word.
+const SOFT_SCRATCH: &[&str] = &["never mind", "nevermind", "delete that", "forget that", "forget it", "ignore that"];
+const NEVER_MIND_LEADS: &[&str] = &["i", "you", "we", "they", "he", "she", "don't", "wouldn't", "just", "and", "to"];
+/// Before these "scratch that" is the verb: "try not to scratch that bite".
+const SCRATCH_VERB_LEADS: &[&str] = &[
+    "to", "not", "don't", "didn't", "won't", "can't", "can", "could", "will", "would", "should", "must", "i", "you",
+    "we", "they", "please", "let's", "might", "may", "did", "cats", "dogs", "he", "she",
+];
+/// "never mind let's just cook": a new clause starts straight after.
+const AFTER_NEVER_MIND: &[&str] = &["let's", "i", "we", "i'll", "we'll", "it's", "just"];
+/// Longest first, so "no wait" is not read as "no".
+const CORRECTIONS: &[&str] = &[
+    "actually make that", "sorry i mean", "no i mean", "actually i mean", "no wait", "wait no", "no sorry", "sorry no", "actually no",
+    "no actually", "wait actually", "actually wait", "or rather", "i mean", "i meant", "make that", "actually",
+    "sorry", "oops", "no", "wait", "rather",
+];
+/// Corrections too clear to need a pause before them.
+const CLEAR_CORRECTIONS: &[&str] = &[
+    "actually make that", "sorry i mean", "no i mean", "actually i mean", "no wait", "wait no", "no sorry", "sorry no", "actually no",
+    "no actually", "wait actually", "actually wait", "or rather", "i meant", "make that",
+];
+/// Longest run of words a correction may look back over.
+const ANCHOR_WINDOW: usize = 8;
+/// A restatement anchored only on a word like "the" must be this short and
+/// end there: "the beach", not "the beach is nicer", which is a new thought.
+const ANCHOR_SHORT_WORDS: usize = 3;
 
 const NUMBER_WORDS: &[&str] = &[
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
@@ -172,11 +200,15 @@ fn value_kind(word: &str) -> Option<ValueKind> {
 }
 
 fn is_meridiem(t: &Token) -> bool {
-    lower(t).is_some_and(|w| matches!(w.as_str(), "am" | "pm" | "a.m" | "p.m"))
+    lower(t).is_some_and(|w| matches!(w.as_str(), "am" | "pm" | "a.m" | "p.m" | "a.m." | "p.m."))
+}
+
+fn is_number_word(t: &Token) -> bool {
+    lower(t).is_some_and(|w| NUMBER_WORDS.contains(&w.as_str()) || w == "thousand" || w == "million")
 }
 
 /// The value ending just before `end` (skipping one comma): its start index
-/// and kind. "2 pm" counts as one value.
+/// and kind. "2 pm" counts as one value, and so does "two hundred".
 fn value_before(tokens: &[Token], end: usize) -> Option<(usize, ValueKind)> {
     let mut i = end;
     if i > 0 && tokens[i - 1].is_comma() {
@@ -187,6 +219,11 @@ fn value_before(tokens: &[Token], end: usize) -> Option<(usize, ValueKind)> {
         start -= 1;
     }
     let kind = value_kind(tokens[start].word()?)?;
+    if kind == ValueKind::Number {
+        while start > 0 && is_number_word(&tokens[start]) && is_number_word(&tokens[start - 1]) {
+            start -= 1;
+        }
+    }
     Some((start, kind))
 }
 
@@ -197,10 +234,129 @@ fn value_after(tokens: &[Token], mut i: usize) -> Option<(usize, usize, ValueKin
     }
     let kind = value_kind(tokens.get(i)?.word()?)?;
     let mut end = i + 1;
+    if kind == ValueKind::Number {
+        while tokens.get(end).is_some_and(is_number_word) {
+            end += 1;
+        }
+    }
     if tokens.get(end).is_some_and(is_meridiem) {
         end += 1;
     }
     Some((i, end, kind))
+}
+
+/// A value correction at the trigger: where to cut the output, and the
+/// replacement's range. "two hundred dollars, no, three hundred dollars"
+/// carries its unit along when both sides say it.
+fn value_correction(out: &[Token], tokens: &[Token], after: usize, no_trigger: bool) -> Option<(usize, usize, usize)> {
+    let (b_start, b_end, b_kind) = value_after(tokens, after)?;
+    // "no one else", "no two ways about it".
+    if no_trigger && tokens.get(b_end).and_then(Token::word).is_some() {
+        let first = lower(&tokens[b_start])?;
+        if first == "one" || first == "two" {
+            return None;
+        }
+    }
+    if let Some((a_start, a_kind)) = value_before(out, out.len()) {
+        if a_kind == b_kind {
+            return Some((a_start, b_start, b_end));
+        }
+    }
+    // The unit form.
+    let end = if out.last().is_some_and(Token::is_comma) { out.len() - 1 } else { out.len() };
+    let unit = out.get(end.checked_sub(1)?)?.word()?;
+    let same_unit = tokens.get(b_end).is_some_and(|t| t.is_word_ci(unit));
+    let (a_start, a_kind) = value_before(out, end - 1)?;
+    (same_unit && a_kind == b_kind).then_some((a_start, b_start, b_end + 1))
+}
+
+fn is_capitalised(t: &Token) -> bool {
+    t.word().is_some_and(|w| w.starts_with(char::is_uppercase) && w != "I" && !w.contains('\''))
+}
+
+/// A restatement after a correction word: what to keep of the output, and
+/// where the words that replace the rest start. Either the new words open
+/// the same way as some earlier ones ("send it to John, no wait, send it to
+/// Sara") or a name replaces a name ("tell John, I mean Sara, about it").
+fn restatement(out: &[Token], tokens: &[Token], after: usize, paused: bool) -> Option<(usize, usize)> {
+    let mut from = after;
+    while tokens.get(from).is_some_and(Token::is_comma) {
+        from += 1;
+    }
+    let first = lower(tokens.get(from)?)?;
+    let start = out.iter().rposition(Token::ends_sentence).map_or(0, |p| p + 1);
+
+    // Words looked back over, nearest first.
+    let earlier: Vec<usize> = (start..out.len())
+        .rev()
+        .filter(|&p| out[p].word().is_some())
+        .take(ANCHOR_WINDOW)
+        .collect();
+    if let Some(&p) = earlier.iter().find(|&&p| out[p].is_word_ci(&first)) {
+        let mut same = 1;
+        while out.get(p + same).zip(tokens.get(from + same)).is_some_and(|(a, b)| {
+            a.word().is_some() && b.word().is_some_and(|w| a.is_word_ci(w))
+        }) {
+            same += 1;
+        }
+        let new_words = (from..tokens.len()).take_while(|&j| !tokens[j].ends_sentence() && !tokens[j].is_comma()).count();
+        let weak = same == 1 && super::stopwords::is_stopword(&first);
+        if (!weak && paused) || (same >= 2) || (weak && new_words <= ANCHOR_SHORT_WORDS) {
+            return Some((p, from));
+        }
+    }
+
+    // A name replaces a name, when the sentence carries on sensibly after it.
+    if !paused || !is_capitalised(&tokens[from]) || super::stopwords::is_stopword(&first) {
+        return None;
+    }
+    let end = if out.last().is_some_and(Token::is_comma) { out.len() - 1 } else { out.len() };
+    let last = end.checked_sub(1)?;
+    if last <= start || !is_capitalised(&out[last]) {
+        return None;
+    }
+    let mut name_end = from + 1;
+    while tokens.get(name_end).is_some_and(is_capitalised) {
+        name_end += 1;
+    }
+    let carries_on = match tokens.get(name_end) {
+        None | Some(Token::Close(_) | Token::Break(_)) => true,
+        Some(t) => lower(t).is_some_and(|w| matches!(w.as_str(), "about" | "to" | "at" | "in" | "on" | "for" | "with" | "and" | "from")),
+    };
+    if !carries_on {
+        return None;
+    }
+    let mut cut = last;
+    while cut > start + 1 && is_capitalised(&out[cut - 1]) {
+        cut -= 1;
+    }
+    Some((cut, from))
+}
+
+/// "scratch that" and friends at `i`: the index after the phrase.
+fn scratch_at(tokens: &[Token], i: usize, out: &[Token]) -> Option<usize> {
+    let pause_after = |end: usize| {
+        tokens.get(end).is_none_or(|t| is_close(t) || matches!(t, Token::Break(_)))
+    };
+    let lead = i.checked_sub(1).and_then(|p| lower(&tokens[p]));
+    if let Some(end) = SCRATCH.iter().find_map(|p| phrase(tokens, i, p)) {
+        let literal = tokens.get(end).and_then(lower).is_some_and(|w| SCRATCH_LITERAL.contains(&w.as_str()));
+        let verb = lead.as_ref().is_some_and(|w| SCRATCH_VERB_LEADS.contains(&w.as_str()));
+        return (!literal && !verb).then_some(end);
+    }
+    let end = SOFT_SCRATCH.iter().find_map(|p| phrase(tokens, i, p))?;
+    if !out.iter().any(|t| t.word().is_some()) {
+        return None;
+    }
+    if tokens[i].is_word_ci("never") {
+        // "let's order pizza never mind let's just cook", "see you never mind".
+        let lead_ok = lead.is_some_and(|w| !NEVER_MIND_LEADS.contains(&w.as_str()));
+        let clause_next = tokens.get(end).and_then(lower).is_some_and(|w| AFTER_NEVER_MIND.contains(&w.as_str()));
+        if lead_ok && (clause_next || pause_after(end)) {
+            return Some(end);
+        }
+    }
+    (at_pause(tokens, i) && pause_after(end)).then_some(end)
 }
 
 /// "at 2 actually 3" to "at 3", "scratch that" drops what came before.
@@ -209,7 +365,7 @@ pub fn backtrack(tokens: Vec<Token>) -> Vec<Token> {
     let mut i = 0;
     while i < tokens.len() {
         // Scratch that: drop the sentence so far, or the previous one.
-        if let Some(end) = SCRATCH.iter().find_map(|p| phrase(&tokens, i, p)) {
+        if let Some(end) = scratch_at(&tokens, i, &out) {
             while out.last().is_some_and(|t| is_punct(t, &[","])) {
                 out.pop();
             }
@@ -232,16 +388,33 @@ pub fn backtrack(tokens: Vec<Token>) -> Vec<Token> {
             continue;
         }
 
-        // Value corrections: the value before the trigger is replaced by
-        // the value after it, when both are the same kind.
-        if let Some(after) = CORRECTIONS.iter().find_map(|p| phrase(&tokens, i, p)) {
-            if let (Some((a_start, a_kind)), Some((b_start, b_end, b_kind))) =
-                (value_before(&out, out.len()), value_after(&tokens, after))
-            {
-                if a_kind == b_kind {
-                    out.truncate(a_start);
-                    out.extend_from_slice(&tokens[b_start..b_end]);
-                    i = b_end;
+        // Corrections: the value before the trigger is replaced by the value
+        // after it, when both are the same kind, or the speaker restates.
+        if let Some((trigger, after)) = CORRECTIONS.iter().find_map(|p| phrase(&tokens, i, p).map(|e| (*p, e))) {
+            let no_trigger = trigger == "no";
+            if let Some((a_start, b_start, b_end)) = value_correction(&out, &tokens, after, no_trigger) {
+                out.truncate(a_start);
+                out.extend_from_slice(&tokens[b_start..b_end]);
+                i = b_end;
+                continue;
+            }
+            let paused = at_pause(&tokens, i) || CLEAR_CORRECTIONS.contains(&trigger);
+            if paused || trigger == "actually" {
+                if let Some((keep, from)) = restatement(&out, &tokens, after, paused) {
+                    let was_name = out.get(keep).is_some_and(is_capitalised) && !out[keep].is_word_ci(tokens[from].word().unwrap_or(""));
+                    out.truncate(keep);
+                    let mut j = from;
+                    if was_name {
+                        // The commas that framed the correction go with it.
+                        while tokens.get(j).is_some_and(is_capitalised) {
+                            out.push(tokens[j].clone());
+                            j += 1;
+                        }
+                        if tokens.get(j).is_some_and(Token::is_comma) {
+                            j += 1;
+                        }
+                    }
+                    i = j;
                     continue;
                 }
             }
@@ -255,23 +428,32 @@ pub fn backtrack(tokens: Vec<Token>) -> Vec<Token> {
 // 2. Spoken line breaks
 
 const PARAGRAPH_PHRASES: &[&str] = &["start a new paragraph", "new paragraph", "next paragraph"];
-const LINE_PHRASES: &[&str] = &["new line", "next line", "line break"];
+const LINE_PHRASES: &[&str] = &["new line", "next line", "line break", "skip a line"];
 
-/// "new paragraph" always breaks; "new line" only at a pause, so "a new
-/// line of products" stays as words.
+/// "new paragraph" breaks unless it is a noun ("write a new paragraph"); "new
+/// line" only at a pause, so "a new line of products" stays as words.
 pub fn spoken_breaks(tokens: Vec<Token>) -> Vec<Token> {
     let mut out: Vec<Token> = Vec::with_capacity(tokens.len());
     let mut i = 0;
     while i < tokens.len() {
-        let paragraph = PARAGRAPH_PHRASES.iter().find_map(|p| phrase(&tokens, i, p));
+        let noun = i > 0 && lower(&tokens[i - 1]).is_some_and(|w| matches!(w.as_str(), "a" | "the" | "this" | "that" | "each" | "every" | "one" | "another"));
+        let paragraph = PARAGRAPH_PHRASES.iter().find_map(|p| phrase(&tokens, i, p)).filter(|_| !noun);
         let line = LINE_PHRASES.iter().find_map(|p| phrase(&tokens, i, p)).filter(|&end| {
             at_pause(&tokens, i) && (end == tokens.len() || is_close(&tokens[end]) || matches!(tokens[end], Token::Break(_)))
         });
         let hit = paragraph.map(|e| (e, 2)).or(line.map(|e| (e, 1)));
         match hit {
             Some((end, n)) => {
+                let mut had_comma = false;
                 while out.last().is_some_and(Token::is_comma) {
                     out.pop();
+                    had_comma = true;
+                }
+                // "The sky was clear, new line": the pause ended a sentence.
+                // "Hi John, new line" is too short to be one.
+                let from = out.iter().rposition(Token::ends_sentence).map_or(0, |p| p + 1);
+                if had_comma && words(&out[from..]) >= 3 {
+                    out.push(Token::Close(".".into()));
                 }
                 out.push(Token::Break(n));
                 i = end;
@@ -305,10 +487,33 @@ const ORDINALS: &[&[&str]] = &[
 const PREFIXES: &[&str] = &["number", "point", "step", "item"];
 const FINAL_MARKERS: &[&str] = &["finally", "lastly"];
 
+/// Before these a number or ordinal is not a marker: "a second", "the one".
+const NOT_BEFORE_MARKER: &[&str] = &[
+    "a", "an", "the", "this", "that", "my", "your", "our", "per", "every", "each", "one", "in", "at", "on", "by",
+    "for", "to", "of", "these", "those", "about", "around", "only", "just", "than",
+];
+/// After these "one" and "two" are counting, not a list: "One of them",
+/// "One thing I noticed", "Two people".
+const NOT_AFTER_MARKER: &[&str] = &[
+    "of", "more", "thing", "things", "time", "times", "day", "days", "person", "people", "way", "ways", "reason",
+    "reasons", "another", "or", "and", "other", "last", "big", "small", "little", "or", "guy", "guys", "minute",
+    "minutes", "second", "seconds", "hour", "hours", "week", "weeks", "month", "months", "year", "years",
+];
+/// After these an ordinal describes a noun instead of opening an item.
+const ORDINAL_NOUNS: &[&str] = &[
+    "time", "times", "week", "day", "floor", "hand", "half", "place", "one", "round", "guess", "thought", "nature",
+    "language", "class", "grade", "chance", "opinion", "look", "thing", "year", "month", "quarter", "date", "person",
+    "try", "attempt", "page", "line", "version", "draft",
+];
+const LETTERS: &str = "abcdefghij";
+/// Items in an unpunctuated "first X second Y" pair.
+const ORDINAL_PAIR_MAX_WORDS: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Family {
     Cardinal,
     Ordinal,
+    Letter,
     Bullet,
 }
 
@@ -321,6 +526,9 @@ struct Marker {
     end: usize,
     /// Followed by a pause, or spoken with a prefix like "number one".
     clear: bool,
+    /// Opens a sentence without a pause: "One I ran into the stairs." Only
+    /// counts with others like it.
+    soft: bool,
 }
 
 fn cardinal(word: &str) -> Option<usize> {
@@ -339,12 +547,42 @@ fn marker_at(tokens: &[Token], i: usize, loose: bool) -> Option<Marker> {
     if !loose && !at_pause(tokens, i) {
         return None;
     }
-    if let Some(end) = phrase(tokens, i, "bullet point") {
+    if i > 0 && lower(&tokens[i - 1]).is_some_and(|w| NOT_BEFORE_MARKER.contains(&w.as_str())) {
+        return None;
+    }
+    let bullet = ["bullet point", "next bullet", "bullet"].iter().find_map(|p| phrase(tokens, i, p));
+    if let Some(end) = bullet {
         let end = skip_pause(tokens, end);
-        return Some(Marker { n: 1, family: Family::Bullet, end, clear: paused_before });
+        return Some(Marker { n: 1, family: Family::Bullet, end, clear: paused_before, soft: false });
     }
     let first = lower(tokens.get(i)?)?;
-    let (n, family, prefixed, at) = if PREFIXES.contains(&first.as_str()) {
+    // "A. my homework. B. Feed the dog."
+    if first.chars().count() == 1 {
+        let n = first.chars().next().and_then(|c| LETTERS.find(c)).map(|p| p + 1);
+        let pause = tokens.get(i + 1).is_some_and(|t| is_punct(t, &[".", ")", ":"]));
+        if let (Some(n), true) = (n, pause) {
+            let end = skip_pause(tokens, i + 1);
+            return Some(Marker { n, family: Family::Letter, end, clear: paused_before, soft: false });
+        }
+    }
+    // "The first is the budget." "The second one is the timeline."
+    if first == "the" {
+        let ord = lower(tokens.get(i + 1)?)?;
+        if let Some(p) = ORDINALS.iter().position(|o| o.contains(&ord.as_str())) {
+            let mut j = i + 2;
+            if tokens.get(j).is_some_and(|t| t.is_word_ci("one") || t.is_word_ci("thing")) {
+                j += 1;
+            }
+            if tokens.get(j).is_some_and(|t| t.is_word_ci("is")) {
+                return Some(Marker { n: p + 1, family: Family::Ordinal, end: skip_pause(tokens, j + 1), clear: paused_before, soft: false });
+            }
+        }
+        return None;
+    }
+    if let Some(end) = phrase(tokens, i, "last but not least") {
+        return Some(Marker { n: 0, family: Family::Ordinal, end: skip_pause(tokens, end), clear: paused_before, soft: false });
+    }
+    let (n, family, prefixed, mut at) = if PREFIXES.contains(&first.as_str()) {
         let n = cardinal(tokens.get(i + 1)?.word()?)?;
         (n, Family::Cardinal, true, i + 1)
     } else if let Some(n) = cardinal(&first) {
@@ -356,14 +594,97 @@ fn marker_at(tokens: &[Token], i: usize, loose: bool) -> Option<Marker> {
     } else {
         return None;
     };
+    // "First of all", "first off".
+    if family == Family::Ordinal {
+        if phrase(tokens, at + 1, "of all").is_some() {
+            at += 2;
+        } else if phrase(tokens, at + 1, "off").is_some() {
+            at += 1;
+        }
+    }
     let paused = tokens.get(at + 1).is_some_and(|t| is_punct(t, &[",", ":", ".", ")"]));
     let digit = tokens[at].word().is_some_and(|w| w.chars().all(|c| c.is_ascii_digit()));
+    let counting = tokens.get(at + 1).and_then(lower).is_some_and(|w| NOT_AFTER_MARKER.contains(&w.as_str()));
+    // "First time we met", "second hand", "third floor".
+    let ordinal_noun = tokens.get(at + 1).and_then(lower).is_some_and(|w| ORDINAL_NOUNS.contains(&w.as_str()));
+    if family == Family::Ordinal && ordinal_noun {
+        return None;
+    }
+    let opens_sentence = at_boundary(tokens, i) && tokens.get(at + 1).is_some_and(|t| t.word().is_some());
     Some(Marker {
         n,
         family,
         end: skip_pause(tokens, at + 1),
         clear: paused_before && (prefixed || paused || digit),
+        soft: opens_sentence && !counting,
     })
+}
+
+// Announcing a list
+
+/// What people list. Used with a number or a word like "some", so "I have
+/// three kids" announces nothing.
+const LIST_NOUNS: &[&str] = &[
+    "things", "items", "points", "changes", "tasks", "steps", "options", "reasons", "questions", "issues", "problems",
+    "ideas", "features", "requests", "updates", "fixes", "goals", "priorities", "bugs", "notes", "errors",
+    "improvements", "tweaks", "suggestions", "comments", "concerns", "topics", "parts", "ways", "stuff", "groceries",
+    "ingredients", "requirements", "rules", "edits",
+];
+const COUNT_WORDS: &[&str] = &["two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "2", "3", "4", "5", "6", "7", "8", "9", "10", "these", "those"];
+const SOME_WORDS: &[&str] = &["some", "few", "couple", "several", "multiple", "many", "various", "bunch", "more"];
+/// Longer than this, a sentence mentioning "things" is just talking about them.
+const ANNOUNCE_MAX_WORDS: usize = 10;
+/// Items after a soft announcement. Anything longer reads as prose.
+const SHORT_ITEM_MAX_WORDS: usize = 6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Announces {
+    No,
+    /// "the action items", "here's what you need": only counts when what
+    /// follows is short enough to be items and nothing else.
+    IfShort,
+    /// "some changes": says more may follow, which only counts when what
+    /// follows looks like items.
+    Maybe,
+    /// "three things", "the following", "a list", or a closing colon.
+    Yes,
+}
+
+fn announcement(sentence: &[Token]) -> Announces {
+    let w: Vec<String> = sentence.iter().filter_map(lower).collect();
+    let closes_with_colon = sentence.iter().rev().find(|t| !matches!(t, Token::Break(_))).is_some_and(|t| is_punct(t, &[":"]));
+    // "the following day" is not a list; "the following changes" and a
+    // sentence ending on "following" are.
+    let following = w.iter().enumerate().any(|(i, x)| {
+        x == "following" && w.get(i + 1).is_none_or(|n| !matches!(n.as_str(), "day" | "week" | "month" | "year" | "morning" | "night" | "evening"))
+    });
+    let as_follows = w.windows(2).any(|p| p[0] == "as" && p[1] == "follows");
+    let list = w.iter().any(|x| x == "list");
+    if closes_with_colon || following || as_follows || list {
+        return Announces::Yes;
+    }
+    let names_a_list = |q: usize| w[q + 1..].iter().take(3).any(|x| LIST_NOUNS.contains(&x.as_str()));
+    if (0..w.len()).any(|q| COUNT_WORDS.contains(&w[q].as_str()) && names_a_list(q)) {
+        return Announces::Yes;
+    }
+    if (0..w.len()).any(|q| SOME_WORDS.contains(&w[q].as_str()) && names_a_list(q)) {
+        return Announces::Maybe;
+    }
+    let here = matches!(
+        (w.first().map(String::as_str), w.get(1).map(String::as_str), w.get(2).map(String::as_str)),
+        (Some("here"), Some("are"), _) | (Some("here's"), Some("what"), _) | (Some("here"), Some("is"), Some("what"))
+    );
+    if here || (w.len() <= ANNOUNCE_MAX_WORDS && w.iter().any(|x| LIST_NOUNS.contains(&x.as_str()))) {
+        return Announces::IfShort;
+    }
+    Announces::No
+}
+
+/// Whether a sentence can sit before a list as its intro. A short label
+/// ("Agenda.") can; "We launched yesterday." cannot.
+fn introduces(sentence: &[Token]) -> bool {
+    let here = first_word(sentence).is_some_and(|w| w == "here" || w == "here's") && words(sentence) <= ANNOUNCE_MAX_WORDS;
+    announcement(sentence) != Announces::No || words(sentence) <= 3 || here
 }
 
 fn skip_pause(tokens: &[Token], mut i: usize) -> usize {
@@ -393,7 +714,16 @@ pub fn lists(tokens: Vec<Token>) -> Vec<Token> {
     let mut out: Vec<Token> = Vec::with_capacity(tokens.len() + 8);
     let mut i = 0;
     while i < tokens.len() {
-        let Some(first) = marker_at(&tokens, i, false).filter(|m| m.n == 1) else {
+        // A list usually starts at a pause. Unpunctuated, "my plan first X
+        // second Y" can start anywhere for ordinals, and for "one, two" once
+        // the sentence has said a list is coming.
+        let sentence_so_far = out.iter().rposition(|t| t.ends_sentence()).map_or(0, |p| p + 1);
+        let found = marker_at(&tokens, i, false).filter(|m| m.n == 1).or_else(|| {
+            let m = marker_at(&tokens, i, true).filter(|m| m.n == 1)?;
+            let said_so = announcement(&out[sentence_so_far..]) != Announces::No;
+            (m.family == Family::Ordinal || (m.family == Family::Cardinal && said_so)).then_some(m)
+        });
+        let Some(first) = found else {
             out.push(tokens[i].clone());
             i += 1;
             continue;
@@ -402,6 +732,7 @@ pub fn lists(tokens: Vec<Token>) -> Vec<Token> {
         // Collect the items.
         let mut items: Vec<(usize, usize)> = Vec::new(); // token ranges
         let mut clear = vec![first.clear];
+        let mut soft = vec![first.soft];
         let mut start = first.end;
         let mut want = 2;
         let last_end;
@@ -410,6 +741,7 @@ pub fn lists(tokens: Vec<Token>) -> Vec<Token> {
                 Some((j, m)) => {
                     items.push((start, j));
                     clear.push(m.clear);
+                    soft.push(m.soft);
                     start = m.end;
                     want += 1;
                     if m.n == 0 {
@@ -428,9 +760,29 @@ pub fn lists(tokens: Vec<Token>) -> Vec<Token> {
         }
 
         let counts: Vec<usize> = items.iter().map(|&(a, b)| words(&tokens[a..b])).collect();
+        let intro_start = out.iter().rposition(|t| t.ends_sentence()).map_or(0, |p| p + 1);
+        let last_sentence = {
+            let end = out.len().saturating_sub(1);
+            let from = out[..end].iter().rposition(|t| t.ends_sentence()).map_or(0, |p| p + 1);
+            &out[from..]
+        };
+        let announced = if intro_start < out.len() {
+            announcement(&out[intro_start..]) != Announces::No
+        } else {
+            announcement(last_sentence) != Announces::No
+        };
+        let firm = clear.iter().zip(&soft).all(|(c, s)| *c || *s);
+        // "First pack the bags second lock the door."
+        let ordinal_pair = first.family == Family::Ordinal
+            && first.soft
+            && items.len() == 2
+            && counts.iter().all(|&c| c <= ORDINAL_PAIR_MAX_WORDS);
         let valid = items.len() >= 2
             && counts.iter().all(|&c| (1..=30).contains(&c))
-            && (clear.iter().all(|&c| c) || (items.len() >= 3 && counts.iter().all(|&c| c <= 6)));
+            && (clear.iter().all(|&c| c)
+                || ordinal_pair
+                || (firm && (items.len() >= 3 || announced))
+                || (items.len() >= 3 && counts.iter().all(|&c| c <= 6)));
         if !valid {
             out.push(tokens[i].clone());
             i += 1;
@@ -438,14 +790,14 @@ pub fn lists(tokens: Vec<Token>) -> Vec<Token> {
         }
 
         // The intro: this sentence's words before the first marker.
-        let intro_start = out.iter().rposition(|t| t.ends_sentence()).map_or(0, |p| p + 1);
+        let colon_fits = intro_start == out.len() && introduces(last_sentence);
         let mut intro: Vec<Token> = out.split_off(intro_start);
         trim_trailing(&mut intro);
         if !intro.is_empty() {
             out.extend(intro);
             out.push(Token::Close(":".into()));
             out.push(Token::Break(1));
-        } else if out.last().is_some_and(|t| is_punct(t, &["."])) {
+        } else if colon_fits && out.last().is_some_and(|t| is_punct(t, &["."])) {
             // "I need three things. One, milk." The sentence before
             // introduces the list.
             out.pop();
@@ -467,6 +819,7 @@ pub fn lists(tokens: Vec<Token>) -> Vec<Token> {
             }
             out.push(Token::Raw(match first.family {
                 Family::Bullet => "-".into(),
+                Family::Letter => format!("{}.", (b'A' + k as u8) as char),
                 _ => format!("{}.", k + 1),
             }));
             out.extend(item);
@@ -570,9 +923,92 @@ fn colon_list(sentence: &[Token]) -> Option<(Vec<Token>, Vec<Vec<Token>>)> {
     (words(&intro) > 0 && items.len() >= 3 && items.iter().all(|p| words(p) <= 5)).then_some((intro, items))
 }
 
-fn announces_a_list(sentence: &[Token]) -> bool {
-    sentence.iter().any(|t| t.is_word_ci("following"))
-        || sentence.iter().rev().find(|t| !matches!(t, Token::Break(_))).is_some_and(|t| is_punct(t, &[":"]))
+/// Verbs that open an instruction, so "add X, add Y and make Z" reads as a
+/// list of things to do.
+const IMPERATIVES: &[&str] = &[
+    "add", "make", "remove", "change", "fix", "update", "use", "move", "send", "call", "get", "set", "put", "delete",
+    "create", "check", "write", "finish", "buy", "book", "ask", "tell", "email", "review", "schedule", "clean",
+    "test", "run", "build", "ship", "open", "close", "turn", "show", "hide", "give", "take", "keep", "bring", "pay",
+    "reduce", "increase", "improve", "replace", "rename", "print", "sign", "submit", "reply", "pick", "feed", "wash",
+];
+/// Openings that say "here is one more item" when they repeat.
+const LIST_LEADS: &[&[&str]] = &[
+    &["we", "should"],
+    &["we", "need"],
+    &["we", "must"],
+    &["i", "need"],
+    &["i", "want"],
+    &["you", "should"],
+    &["you", "need"],
+    &["make", "sure"],
+    &["let's", "not"],
+];
+/// A longer item in an instruction series reads as prose.
+const SERIES_ITEM_MAX_WORDS: usize = 14;
+/// Openers short enough to label what follows ("Some notes.").
+const LABEL_MAX_WORDS: usize = 4;
+
+fn first_word(tokens: &[Token]) -> Option<String> {
+    tokens.iter().find_map(lower)
+}
+
+fn imperative(tokens: &[Token]) -> bool {
+    first_word(tokens).is_some_and(|w| IMPERATIVES.contains(&w.as_str()))
+}
+
+/// All instructions, or all opening on the same word.
+fn uniform(items: &[Vec<Token>]) -> bool {
+    let first = items.first().and_then(|i| first_word(i));
+    items.iter().all(|i| imperative(i)) || items.iter().all(|i| first_word(i) == first)
+}
+
+/// "Add X, add Y and make Z": comma separated items, the last possibly joined
+/// by "and", when they are instructions or open the same way.
+fn series(sentence: &[Token]) -> Option<Vec<Vec<Token>>> {
+    let mut parts: Vec<Vec<Token>> = sentence
+        .split(|t| t.is_comma() || is_punct(t, &[";"]))
+        .map(|p| strip_connectives(p).to_vec())
+        .filter(|p| words(p) > 0)
+        .collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    if let Some(last) = parts.last().cloned() {
+        let joined = last.iter().position(|t| t.is_word_ci("and")).filter(|&a| a > 0 && a + 1 < last.len());
+        if let Some(a) = joined {
+            let (head, tail) = (last[..a].to_vec(), last[a + 1..].to_vec());
+            let same = first_word(&head) == first_word(&tail);
+            if imperative(&tail) || same {
+                parts.pop();
+                parts.push(head);
+                parts.push(tail);
+            }
+        }
+    }
+    (parts.len() >= 3 && parts.iter().all(|p| words(p) <= SERIES_ITEM_MAX_WORDS) && uniform(&parts)).then_some(parts)
+}
+
+/// "I need three things, milk, eggs and bread": the first comma part says how
+/// many, the rest are short items. Returns the intro and the items.
+fn counted_series(sentence: &[Token]) -> Option<(Vec<Token>, Vec<Vec<Token>>)> {
+    let comma = sentence.iter().position(Token::is_comma)?;
+    let intro = sentence[..comma].to_vec();
+    if announcement(&intro) != Announces::Yes {
+        return None;
+    }
+    let mut items: Vec<Vec<Token>> = Vec::new();
+    for part in sentence[comma + 1..].split(Token::is_comma) {
+        let part = strip_connectives(part);
+        match part.iter().position(|t| t.is_word_ci("and")) {
+            Some(a) if a > 0 && part.len() > a + 1 => {
+                items.push(part[..a].to_vec());
+                items.push(part[a + 1..].to_vec());
+            }
+            _ => items.push(part.to_vec()),
+        }
+    }
+    items.retain(|p| words(p) > 0);
+    (items.len() >= 2 && items.iter().all(|p| words(p) <= 5)).then_some((intro, items))
 }
 
 fn push_bullets(out: &mut Vec<Token>, items: &[Vec<Token>]) {
@@ -618,11 +1054,20 @@ pub fn implicit_lists(tokens: Vec<Token>) -> Vec<Token> {
     for (k, s) in sents.iter().enumerate() {
         let before: Vec<Token> = sents[..k].concat();
         let after: Vec<Token> = sents[k + 1..].concat();
+        let announced = k > 0 && announcement(&sents[k - 1]) != Announces::No;
 
-        // One sentence of parallel clauses, or a colon list.
-        let found = parallel_clauses(s)
+        // One sentence of parallel clauses or instructions, after a sentence
+        // that says items are coming ("I can't sleep, I can't eat" alone is
+        // prose). Or a list with its intro in the same sentence.
+        let found = announced
+            .then(|| parallel_clauses(s).or_else(|| series(s)))
+            .flatten()
             .map(|items| (before.clone(), items))
-            .or_else(|| colon_list(s).map(|(intro, items)| ([before.clone(), intro].concat(), items)));
+            .or_else(|| {
+                colon_list(s)
+                    .or_else(|| counted_series(s))
+                    .map(|(intro, items)| ([before.clone(), intro].concat(), items))
+            });
         if let Some((intro, items)) = found {
             let mut out = Vec::new();
             push_intro(&mut out, &intro);
@@ -659,13 +1104,21 @@ pub fn implicit_lists(tokens: Vec<Token>) -> Vec<Token> {
             }
         }
 
-        // Short sentences after one that announces them.
-        if announces_a_list(s) {
+        // Short sentences after one that announces them. "Some changes" only
+        // counts when they look like items.
+        let announces = announcement(s);
+        if announces != Announces::No {
             let run = sents[k + 1..]
                 .iter()
                 .take_while(|n| short(n, ANNOUNCED_ITEM_MAX_WORDS))
                 .count();
-            if run >= 2 {
+            let items = &sents[k + 1..k + 1 + run];
+            let fits = match announces {
+                Announces::Yes => true,
+                Announces::Maybe => uniform(items),
+                _ => items.iter().all(|i| words(i) <= SHORT_ITEM_MAX_WORDS),
+            };
+            if run >= 2 && fits {
                 let mut out = Vec::new();
                 push_intro(&mut out, &[before, s.clone()].concat());
                 push_bullets(&mut out, &sents[k + 1..k + 1 + run]);
@@ -684,7 +1137,12 @@ pub fn implicit_lists(tokens: Vec<Token>) -> Vec<Token> {
                 .iter()
                 .take_while(|n| short(n, IMPLICIT_ITEM_MAX_WORDS) && lead(n).as_ref() == Some(&l))
                 .count();
-            if run >= 3 {
+            // "I went home. I went out. I went to sleep." is a story: it
+            // needs a label before it or an opening that lists.
+            let labelled = k > 0 && words(&sents[k - 1]) <= LABEL_MAX_WORDS;
+            let lists = LIST_LEADS.iter().any(|p| l.iter().map(String::as_str).eq(p.iter().copied()));
+            let distinct = (k..k + run).all(|a| (a + 1..k + run).all(|b| sents[a] != sents[b]));
+            if run >= 3 && distinct && (labelled || lists) {
                 let mut out = Vec::new();
                 push_intro(&mut out, &before);
                 push_bullets(&mut out, &sents[k..k + run]);
@@ -703,33 +1161,94 @@ pub fn implicit_lists(tokens: Vec<Token>) -> Vec<Token> {
 // 4. Paragraphs
 
 const TRANSITIONS: &[&str] = &[
-    "also", "additionally", "another thing", "moving on", "on another note", "separately", "next", "anyway",
-    "by the way", "in other news", "one more thing", "apart from that", "besides that",
+    "also", "additionally", "another thing", "moving on", "on another note", "on a different note", "separately",
+    "next", "anyway", "by the way", "in other news", "one more thing", "one last thing", "the other thing",
+    "apart from that", "besides that", "as for", "regarding", "changing topics", "speaking of", "finally", "lastly",
+    "in addition", "meanwhile", "let me know",
 ];
 const PARAGRAPH_MIN_WORDS: usize = 60;
 const PARAGRAPH_MIN_SENTENCES: usize = 4;
+/// Longer than this, a paragraph is split where the topic changes most.
+const PARAGRAPH_MAX_WORDS: usize = 70;
+/// Email reads in shorter blocks.
+const EMAIL_PARAGRAPH_MIN_WORDS: usize = 40;
+const EMAIL_PARAGRAPH_MIN_SENTENCES: usize = 3;
+const EMAIL_PARAGRAPH_MAX_WORDS: usize = 50;
+/// Sentences on each side compared when looking for a change of topic.
+const TOPIC_WINDOW: usize = 2;
+
+/// Shared content words between two runs of sentences, 0 to 1.
+fn cohesion(a: &[Vec<Token>], b: &[Vec<Token>]) -> f32 {
+    let content = |run: &[Vec<Token>]| -> std::collections::HashSet<String> {
+        let text: Vec<&str> = run.iter().flatten().filter_map(Token::word).collect();
+        super::stopwords::countable_words(&text.join(" ")).into_iter().collect()
+    };
+    let (x, y) = (content(a), content(b));
+    if x.is_empty() || y.is_empty() {
+        return 0.0;
+    }
+    x.intersection(&y).count() as f32 / ((x.len() * y.len()) as f32).sqrt()
+}
+
+/// Sentence indexes in `from..to` to break at, so no paragraph runs past
+/// `max` words: at the point where neighbouring sentences share the least
+/// (TextTiling), nearest the middle on a tie.
+fn topic_breaks(sents: &[Vec<Token>], from: usize, to: usize, max: usize, out: &mut Vec<usize>) {
+    let total: usize = sents[from..to].iter().map(|s| words(s)).sum();
+    if total <= max || to - from < TOPIC_WINDOW * 2 {
+        return;
+    }
+    let middle = (from + to) as f32 / 2.0;
+    let best = (from + TOPIC_WINDOW..=to - TOPIC_WINDOW).min_by(|&a, &b| {
+        let score = |k: usize| cohesion(&sents[k - TOPIC_WINDOW..k], &sents[k..k + TOPIC_WINDOW]);
+        score(a)
+            .total_cmp(&score(b))
+            .then((a as f32 - middle).abs().total_cmp(&(b as f32 - middle).abs()))
+    });
+    if let Some(k) = best {
+        out.push(k);
+        topic_breaks(sents, from, k, max, out);
+        topic_breaks(sents, k, to, max, out);
+    }
+}
 
 /// Long dictations with no breaks of their own get a paragraph break before
-/// sentences that open with a transition, at least two sentences apart.
-pub fn paragraphs(tokens: Vec<Token>) -> Vec<Token> {
-    let sentences = tokens.iter().filter(|t| t.ends_sentence()).count();
-    if words(&tokens) < PARAGRAPH_MIN_WORDS
-        || sentences < PARAGRAPH_MIN_SENTENCES
+/// sentences that open with a transition, at least two sentences apart, and
+/// wherever a paragraph would still run long, where the topic changes most.
+pub fn paragraphs(tokens: Vec<Token>, app: AppKind) -> Vec<Token> {
+    let (min_words, min_sentences, max_words) = if app == AppKind::Email {
+        (EMAIL_PARAGRAPH_MIN_WORDS, EMAIL_PARAGRAPH_MIN_SENTENCES, EMAIL_PARAGRAPH_MAX_WORDS)
+    } else {
+        (PARAGRAPH_MIN_WORDS, PARAGRAPH_MIN_SENTENCES, PARAGRAPH_MAX_WORDS)
+    };
+    let sents = sentences(&tokens);
+    if words(&tokens) < min_words
+        || sents.len() < min_sentences
         || tokens.iter().any(|t| matches!(t, Token::Break(_) | Token::Raw(_)))
     {
         return tokens;
     }
-    let mut out = Vec::with_capacity(tokens.len() + 4);
+    let mut breaks = Vec::new();
     let mut since_break = 0usize;
-    for (i, t) in tokens.iter().enumerate() {
-        if i > 0 && at_boundary(&tokens, i) {
-            since_break += 1;
-            if since_break >= 2 && TRANSITIONS.iter().any(|p| phrase(&tokens, i, p).is_some()) {
-                out.push(Token::Break(2));
-                since_break = 0;
-            }
+    for (k, s) in sents.iter().enumerate().skip(1) {
+        since_break += 1;
+        if since_break >= 2 && TRANSITIONS.iter().any(|p| phrase(s, 0, p).is_some()) {
+            breaks.push(k);
+            since_break = 0;
         }
-        out.push(t.clone());
+    }
+    let mut bounds = vec![0];
+    bounds.extend_from_slice(&breaks);
+    bounds.push(sents.len());
+    for pair in bounds.windows(2) {
+        topic_breaks(&sents, pair[0], pair[1], max_words, &mut breaks);
+    }
+    let mut out = Vec::with_capacity(tokens.len() + breaks.len());
+    for (k, s) in sents.iter().enumerate() {
+        if breaks.contains(&k) {
+            out.push(Token::Break(2));
+        }
+        out.extend_from_slice(s);
     }
     out
 }
@@ -739,39 +1258,107 @@ pub fn paragraphs(tokens: Vec<Token>) -> Vec<Token> {
 const GREETINGS: &[&str] = &["hi", "hello", "hey", "dear", "good morning", "good afternoon", "good evening"];
 const SIGN_OFFS: &[&str] = &[
     "best regards", "kind regards", "warm regards", "many thanks", "all the best", "yours truly", "yours sincerely",
-    "thank you", "regards", "best", "thanks", "cheers", "sincerely",
+    "yours faithfully", "thank you so much", "thanks so much", "thanks a lot", "thanks again", "with thanks",
+    "take care", "talk soon", "thank you", "regards", "best", "thanks", "cheers", "sincerely", "warmly",
+    "respectfully",
 ];
+/// Addressed to a group: "Hi team,".
+const GROUP_NAMES: &[&str] = &["there", "team", "everyone", "everybody", "all", "guys", "folks"];
+const GREETING_NAME_MAX_WORDS: usize = 3;
+
+/// After a greeting, the sentence going on instead of a name.
+const NOT_GREETING_NAMES: &[&str] = &[
+    "thanks", "thank", "just", "quick", "sorry", "good", "you", "wanted", "hope", "will", "would", "what", "when",
+    "where", "why", "who", "with",
+];
+
+/// A name in a greeting. Stopwords are the sentence going on ("Hello how are
+/// you"), but a lowercase name is fine ("hi john,").
+fn greeting_name(t: &Token) -> bool {
+    lower(t).is_some_and(|w| {
+        GROUP_NAMES.contains(&w.as_str())
+            || (!super::stopwords::is_stopword(&w) && !NOT_GREETING_NAMES.contains(&w.as_str()))
+    })
+}
+
+fn capitalise_name(tokens: &[Token]) -> Vec<Token> {
+    tokens
+        .iter()
+        .map(|t| match t {
+            Token::Word(w) if !GROUP_NAMES.contains(&w.to_lowercase().as_str()) => Token::Word(capitalise_word(w)),
+            other => other.clone(),
+        })
+        .collect()
+}
 
 /// Greeting and sign off on their own lines, the way an email is laid out.
 pub fn email(mut tokens: Vec<Token>) -> Vec<Token> {
-    // Greeting: "Hi John," at the very start, name up to three words.
+    // Greeting: "Hi John," at the very start, name up to three words, with
+    // or without a pause after it.
+    let mut greeted = false;
     if let Some(after) = GREETINGS.iter().find_map(|g| phrase(&tokens, 0, g)) {
-        let close = (after..(after + 4).min(tokens.len())).find(|&j| is_punct(&tokens[j], &[",", ".", "!"]));
-        if let Some(close) = close {
-            let rest = close + 1;
-            if rest < tokens.len() && words(&tokens[after..close]) <= 3 {
-                let mut head: Vec<Token> = tokens[..close].to_vec();
-                head.push(Token::Close(",".into()));
-                head.push(Token::Break(2));
-                head.extend_from_slice(&tokens[rest..]);
-                tokens = head;
+        // "Hi, John, thanks": the comma after "Hi" goes.
+        let comma_first = tokens.get(after).is_some_and(Token::is_comma)
+            && tokens.get(after + 1).is_some_and(is_capitalised);
+        let from = if comma_first { after + 1 } else { after };
+        let mut end = from;
+        while end - from < GREETING_NAME_MAX_WORDS && tokens.get(end).is_some_and(greeting_name) {
+            // Unpunctuated: a name stops where lowercase words carry on.
+            if end > from && !tokens[end].word().is_some_and(|w| w.starts_with(char::is_uppercase)) {
+                break;
             }
+            end += 1;
+        }
+        let closed = tokens.get(end).is_some_and(|t| is_punct(t, &[",", ".", "!"]));
+        let named = end > from;
+        let rest = if closed { end + 1 } else { end };
+        if rest < tokens.len() && (closed || named) {
+            let mut head: Vec<Token> = tokens[..after].to_vec();
+            head.extend(capitalise_name(&tokens[from..end]));
+            head.push(Token::Close(",".into()));
+            head.push(Token::Break(2));
+            head.extend_from_slice(&tokens[rest..]);
+            tokens = head;
+            greeted = true;
+        }
+    }
+
+    // A sign off with no name, after a greeting: its own paragraph.
+    if greeted {
+        let last_start = tokens[..tokens.len().saturating_sub(1)].iter().rposition(Token::ends_sentence).map_or(0, |p| p + 1);
+        let end = tokens.iter().rposition(|t| !is_punct(t, &[".", "!"])).map_or(0, |p| p + 1);
+        let bare = SIGN_OFFS.iter().any(|s| phrase(&tokens, last_start, s) == Some(end));
+        if bare && last_start > 0 && !matches!(tokens[last_start - 1], Token::Break(_)) {
+            tokens.insert(last_start, Token::Break(2));
+            return tokens;
         }
     }
 
     // Sign off: "Best regards, Maaz." ending the text, name up to three words.
     let end = tokens.iter().rposition(|t| !is_punct(t, &[".", "!"])).map_or(0, |p| p + 1);
     for start in (0..end).rev().take(8) {
-        if !at_pause(&tokens, start) {
+        // After a greeting this is clearly an email, so "thanks maaz" with no
+        // pause before it signs off too.
+        if !at_pause(&tokens, start) && !greeted {
             continue;
         }
         let Some(after) = SIGN_OFFS.iter().find_map(|s| phrase(&tokens, start, s)) else {
             continue;
         };
+        // "regards" inside "best regards": the longer one starts earlier.
+        let inside_longer = start > 0 && SIGN_OFFS.iter().any(|s| phrase(&tokens, start - 1, s).is_some_and(|e| e >= after));
+        if inside_longer {
+            continue;
+        }
         let name_from = skip_pause(&tokens, after).min(end);
         let name = &tokens[name_from..end];
         let name_words = words(name);
-        if start == 0 || !(1..=3).contains(&name_words) || name.iter().any(|t| t.word().is_none()) {
+        let named = name.iter().all(|t| {
+            t.word().is_some_and(|w| {
+                w.starts_with(char::is_uppercase) || (greeted && !super::stopwords::is_stopword(w) && !NOT_GREETING_NAMES.contains(&w))
+            })
+        });
+        if start == 0 || !(1..=3).contains(&name_words) || !named {
             continue;
         }
         let mut body: Vec<Token> = tokens[..start].to_vec();
@@ -785,7 +1372,7 @@ pub fn email(mut tokens: Vec<Token>) -> Vec<Token> {
         body.extend_from_slice(&tokens[start..after]);
         body.push(Token::Close(",".into()));
         body.push(Token::Break(1));
-        body.extend_from_slice(name);
+        body.extend(capitalise_name(name));
         return body;
     }
     tokens
@@ -797,7 +1384,7 @@ pub fn email(mut tokens: Vec<Token>) -> Vec<Token> {
 pub fn chat(mut tokens: Vec<Token>) -> Vec<Token> {
     let sentences = tokens.iter().filter(|t| t.ends_sentence()).count();
     let multiline = tokens.iter().any(|t| matches!(t, Token::Break(_) | Token::Raw(_)));
-    if sentences <= 2 && !multiline && tokens.last().is_some_and(|t| is_punct(t, &["."])) {
+    if sentences <= 2 && !multiline && tokens.last().is_some_and(|t| is_punct(t, &[".", "...", "\u{2026}"])) {
         tokens.pop();
     }
     tokens
@@ -1019,6 +1606,10 @@ mod tests {
 
     // Paragraphs
 
+    fn other_paragraphs(tokens: Vec<Token>) -> Vec<Token> {
+        paragraphs(tokens, AppKind::Other)
+    }
+
     #[test]
     fn long_rambles_break_at_transitions() {
         let text = "The release went out this morning and the first reports look good. Most people \
@@ -1026,7 +1617,7 @@ mod tests {
                     Also, the design team wants to review the onboarding screens before Friday. \
                     They have a few ideas for the welcome page. Anyway, let me know if you want \
                     to join the review call on Thursday afternoon.";
-        let out = run(paragraphs, text);
+        let out = run(other_paragraphs, text);
         assert_eq!(out.matches("\n\n").count(), 2, "{out}");
         assert!(out.contains("\n\nAlso, the design team"));
         assert!(out.contains("\n\nAnyway, let me know"));
@@ -1035,7 +1626,19 @@ mod tests {
     #[test]
     fn short_text_is_never_split() {
         let s = "Thanks. Also, see you tomorrow. Anyway, bye. Next week works.";
-        assert_eq!(run(paragraphs, s), s);
+        assert_eq!(run(other_paragraphs, s), s);
+    }
+
+    #[test]
+    fn long_text_with_no_transitions_splits_where_the_topic_changes() {
+        let text = "The kitchen renovation is running late because the tiles arrived broken. The tiles \
+                    need replacing and the kitchen fitter wants another week. The fitter says the kitchen \
+                    tiles should arrive on Monday. Separate from that my car failed its inspection this \
+                    morning. The car needs new brakes and the garage quoted a high price for brakes. \
+                    The garage can fix the car before the weekend if I approve the brakes today.";
+        let out = run(other_paragraphs, text);
+        assert_eq!(out.matches("\n\n").count(), 1, "{out}");
+        assert!(out.contains("\n\nSeparate from that my car"), "{out}");
     }
 
     // Email

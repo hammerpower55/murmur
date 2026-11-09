@@ -43,6 +43,7 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
       onCancel={() => void cancel(m.id)}
       onUse={() => void use(m.id)}
       onDelete={() => void remove(m.id)}
+      device={view.device}
       on={settings?.fixMisheardWords === true && view.fixer === m.id}
     />
   );
@@ -51,6 +52,7 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
   return (
     <section className="stagger page">
       <h1 className="page-title">Models</h1>
+      <p className="mt-2 text-sm text-zinc-500">Speeds are for your {view.device}</p>
 
       {romanUrduHint && (
         <p className="mt-4 animate-pop rounded-lg border border-accent/25 bg-accent/8 px-3 py-2 text-sm text-accent-strong">

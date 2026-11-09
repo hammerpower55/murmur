@@ -3,6 +3,10 @@
 //! Events: `models-changed` (refetch the list), `model-download` (progress)
 //! and `model-error` (one line for the user).
 
+use super::speed;
+use crate::db::Db;
+use tauri::Manager;
+use crate::hardware;
 use crate::engine::onnx::npu_available;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -40,6 +44,8 @@ pub struct ModelsView {
     pub fixer: Option<String>,
     /// This PC has an NPU that NPU builds can run on.
     pub npu: bool,
+    /// The chip speeds are shown for ("Apple M2 Pro").
+    pub device: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -104,14 +110,30 @@ impl ModelManager {
             .lock()
             .map(|d| d.iter().map(|(id, dl)| (id.clone(), dl.progress)).collect())
             .unwrap_or_default();
+        let mut models = self.registry.list();
+        let measured = self
+            .app
+            .try_state::<Arc<Db>>()
+            .and_then(|db| db.model_timings().ok())
+            .map(|rows| speed::measured(&rows, |id| catalog::find(id).map(|m| m.family)))
+            .unwrap_or_default();
+        for m in &mut models {
+            if let Some(&ms) = measured.get(&m.id) {
+                m.clip_ms = ms;
+                m.speed = speed::dots(ms);
+                m.measured = true;
+            }
+            m.note = (m.clip_ms > speed::SLOW_MS).then(|| "Slow on this device".to_string());
+        }
         ModelsView {
-            models: self.registry.list(),
+            models,
             active: self.host.active(),
             loading: self.host.loading(),
             downloads,
             roman_urdu: settings::current(&self.app).roman_urdu,
             fixer: self.registry.fixup_id(settings::current(&self.app).use_npu),
             npu: npu_available(),
+            device: hardware::device().name.clone(),
         }
     }
 
@@ -174,9 +196,15 @@ impl ModelManager {
         self.host
             .switch(spec.clone(), opts, move |result| {
                 if result.is_err() {
+                    // Fresh files will not help an NPU that cannot run the model.
+                    let npu = catalog::find(&model_id).is_some_and(|m| m.npu);
                     me.error(
                         &model_id,
-                        "Could not load this model. Delete it and download it again.",
+                        if npu {
+                            "Could not start this model on the NPU. Restart Murmur to try again."
+                        } else {
+                            "Could not load this model. Delete it and download it again."
+                        },
                     );
                 }
                 me.changed();

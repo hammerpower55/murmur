@@ -54,6 +54,9 @@ pub enum HotkeyEvent {
     MainDown,
     MainUp,
     ToggleDown,
+    /// The screenplay hotkey: starts or stops a dictation that becomes a
+    /// screenplay.
+    ScriptDown,
     Escape,
 }
 
@@ -192,10 +195,20 @@ fn is_menu_key(key: Key) -> bool {
 /// Changes the running hook from other threads: new hotkeys, pause, and
 /// standing aside while Settings records a hotkey. The hook proc only ever
 /// try_locks, so a change can never make it wait.
+/// Every hotkey the hook listens for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hotkeys {
+    pub main: Combo,
+    /// Hands free: starts or stops, never push to talk.
+    pub toggle: Option<Combo>,
+    /// Screenplay mode, hands free like the toggle.
+    pub script: Option<Combo>,
+}
+
 #[derive(Default)]
 pub struct HotkeyControl {
     version: AtomicU64,
-    pending: Mutex<Option<(Combo, Option<Combo>)>>,
+    pending: Mutex<Option<Hotkeys>>,
     /// "Pause hotkeys" in the tray.
     paused: AtomicBool,
     /// Settings is recording a hotkey; every key passes through to it.
@@ -208,9 +221,9 @@ impl HotkeyControl {
     }
 
     /// The hook switches to these on the next key event.
-    pub fn set_combos(&self, main: Combo, toggle: Option<Combo>) {
+    pub fn set_combos(&self, hotkeys: Hotkeys) {
         if let Ok(mut p) = self.pending.lock() {
-            *p = Some((main, toggle));
+            *p = Some(hotkeys);
             self.version.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -237,6 +250,7 @@ impl HotkeyControl {
 struct Hook {
     main: ComboTracker,
     toggle: Option<ComboTracker>,
+    script: Option<ComboTracker>,
     escape_held: bool,
     recording: Arc<AtomicBool>,
     tx: Sender<(HotkeyEvent, Instant)>,
@@ -252,9 +266,10 @@ impl Hook {
             return;
         }
         if let Ok(mut pending) = self.control.pending.try_lock() {
-            if let Some((main, toggle)) = pending.take() {
-                self.main = ComboTracker::new(main);
-                self.toggle = toggle.map(ComboTracker::new);
+            if let Some(hotkeys) = pending.take() {
+                self.main = ComboTracker::new(hotkeys.main);
+                self.toggle = hotkeys.toggle.map(ComboTracker::new);
+                self.script = hotkeys.script.map(ComboTracker::new);
             }
             self.version = version;
         }
@@ -291,23 +306,10 @@ impl Hook {
             return false;
         }
 
-        let (main, toggle) = if down {
-            (
-                self.main.press(key),
-                self.toggle
-                    .as_mut()
-                    .map(|t| t.press(key))
-                    .unwrap_or_default(),
-            )
-        } else {
-            (
-                self.main.release(key),
-                self.toggle
-                    .as_mut()
-                    .map(|t| t.release(key))
-                    .unwrap_or_default(),
-            )
-        };
+        let step = |t: &mut ComboTracker| if down { t.press(key) } else { t.release(key) };
+        let main = step(&mut self.main);
+        let toggle = self.toggle.as_mut().map(step).unwrap_or_default();
+        let script = self.script.as_mut().map(step).unwrap_or_default();
 
         match main.signal {
             Some(Signal::Down) => {
@@ -321,10 +323,13 @@ impl Hook {
         if toggle.signal == Some(Signal::Down) {
             let _ = self.tx.send((HotkeyEvent::ToggleDown, now));
         }
-        if main.send_mask || toggle.send_mask {
+        if script.signal == Some(Signal::Down) {
+            let _ = self.tx.send((HotkeyEvent::ScriptDown, now));
+        }
+        if main.send_mask || toggle.send_mask || script.send_mask {
             send_mask_key();
         }
-        main.swallow || toggle.swallow
+        main.swallow || toggle.swallow || script.swallow
     }
 }
 
@@ -364,8 +369,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 /// tells the hook whether Escape should be captured (only while recording).
 #[cfg(windows)]
 pub fn spawn(
-    main: Combo,
-    toggle: Option<Combo>,
+    hotkeys: Hotkeys,
     recording: Arc<AtomicBool>,
     tx: Sender<(HotkeyEvent, Instant)>,
     control: Arc<HotkeyControl>,
@@ -376,8 +380,9 @@ pub fn spawn(
             HOOK.with(|cell| {
                 let version = control.version.load(Ordering::SeqCst);
                 *cell.borrow_mut() = Some(Hook {
-                    main: ComboTracker::new(main),
-                    toggle: toggle.map(ComboTracker::new),
+                    main: ComboTracker::new(hotkeys.main),
+                    toggle: hotkeys.toggle.map(ComboTracker::new),
+                    script: hotkeys.script.map(ComboTracker::new),
                     escape_held: false,
                     recording,
                     tx,
@@ -614,6 +619,7 @@ mod tests {
         let hook = Hook {
             main: ComboTracker::new(Combo::ctrl_win()),
             toggle: None,
+            script: None,
             escape_held: false,
             recording: recording.clone(),
             tx,
@@ -633,9 +639,28 @@ mod tests {
     }
 
     #[test]
+    fn the_screenplay_hotkey_sends_its_own_event() {
+        let (mut hook, _, rx) = hook();
+        hook.control.set_combos(Hotkeys {
+            main: Combo::ctrl_win(),
+            toggle: None,
+            script: Some(Combo::new(vec![vec![VK_LCONTROL], vec![VK_LMENU], vec![VK_SPACE]])),
+        });
+        hook.on_key(VK_LCONTROL, true);
+        hook.on_key(VK_LMENU, true);
+        assert!(hook.on_key(VK_SPACE, true));
+        assert_eq!(rx.try_recv().unwrap().0, HotkeyEvent::ScriptDown);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
     fn new_combos_apply_on_the_next_key() {
         let (mut hook, _, rx) = hook();
-        hook.control.set_combos(Combo::ctrl_shift_space(), None);
+        hook.control.set_combos(Hotkeys {
+            main: Combo::ctrl_shift_space(),
+            toggle: None,
+            script: None,
+        });
         assert!(!hook.on_key(VK_LCONTROL, true));
         assert!(!hook.on_key(VK_LWIN, true));
         hook.on_key(VK_LWIN, false);

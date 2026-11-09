@@ -46,7 +46,7 @@ struct Shown {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Style {
-    pub bar_colour: String,
+    pub wave_colour: String,
 }
 
 #[derive(Clone)]
@@ -100,7 +100,7 @@ impl Overlay {
             .lock()
             .map(|s| s.clone())
             .unwrap_or_else(|_| Style {
-                bar_colour: "#ffffff".into(),
+                wave_colour: "#f6b83d".into(),
             })
     }
 

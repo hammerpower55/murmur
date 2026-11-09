@@ -7,13 +7,20 @@
 }
 
 /* The floating pill (spec 6.4). Dark only. Transforms and opacity only, so
-   animation never triggers layout. */
+   animation never triggers layout. Sizes match `overlay/window.rs`. */
 
 :root {
-  --bar-colour: #ffffff;
-  --pill-bg: rgba(20, 20, 22, 0.92);
-  --pill-border: rgba(255, 255, 255, 0.08);
-  --text: rgba(255, 255, 255, 0.86);
+  /* Setting "Wave colour"; the default is the app's amber. */
+  --wave: #f6b83d;
+  --text: oklch(0.93 0.006 78);
+  --muted: oklch(0.72 0.012 74);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-quart: cubic-bezier(0.5, 0, 0.75, 0);
+  /* Compact capsule for every phase but the error line. */
+  --h: 32px;
+  --compact: 112px;
+  --wide: 176px;
 }
 
 html,
@@ -35,36 +42,75 @@ body {
 
 .pill {
   position: relative;
-  width: 240px;
-  height: 56px;
-  box-sizing: border-box;
-  border-radius: 28px;
-  background: var(--pill-bg);
-  border: 1px solid var(--pill-border);
-  box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.32),
-    0 1px 3px rgba(0, 0, 0, 0.24);
+  width: var(--wide);
+  height: var(--h);
   opacity: 0;
-  transform: scale(0.92);
+  transform: translateY(6px) scale(0.9);
   will-change: opacity, transform;
 }
 
-/* Appear: 160 ms ease out. */
+/* Appear: rises a few pixels out of the taskbar, 200 ms expo out. */
 .pill.shown {
   opacity: 1;
-  transform: scale(1);
+  transform: none;
   transition:
-    opacity 160ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    opacity 160ms var(--ease-out-quint),
+    transform 200ms var(--ease-out-expo);
 }
 
-/* Disappear: 140 ms ease in, towards 0.96. */
+/* Disappear: 140 ms ease in, sinking back. */
 .pill.leaving {
   opacity: 0;
-  transform: scale(0.96);
+  transform: translateY(3px) scale(0.96);
   transition:
-    opacity 140ms cubic-bezier(0.7, 0, 0.84, 0),
-    transform 140ms cubic-bezier(0.7, 0, 0.84, 0);
+    opacity 140ms var(--ease-in-quart),
+    transform 140ms var(--ease-in-quart);
+}
+
+/* The capsule is two round caps and a middle that slide and stretch
+   between the compact and the wide size, so its width changes through
+   transforms alone. All three share one opaque fill so they read as one
+   shape; the shadow and hairline edge come from a filter over the group. */
+.shell {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(0 0 0.6px oklch(1 0.01 80 / 0.28)) drop-shadow(0 5px 9px oklch(0 0 0 / 0.42));
+}
+
+.cap,
+.mid {
+  position: absolute;
+  top: 0;
+  height: var(--h);
+  background: linear-gradient(180deg, oklch(0.245 0.009 72), oklch(0.185 0.007 70));
+  transition: transform 260ms var(--ease-out-quint);
+}
+
+.cap {
+  width: var(--h);
+  border-radius: 50%;
+}
+
+.cap.start {
+  left: 0;
+  transform: translateX(calc((var(--wide) - var(--compact)) / 2));
+}
+
+.cap.end {
+  right: 0;
+  transform: translateX(calc((var(--compact) - var(--wide)) / 2));
+}
+
+.mid {
+  left: calc(var(--h) / 2);
+  right: calc(var(--h) / 2);
+  /* (compact - h) / (wide - h) */
+  transform: scaleX(0.5556);
+}
+
+.pill[data-phase="error"] .cap,
+.pill[data-phase="error"] .mid {
+  transform: none;
 }
 
 .view {
@@ -73,9 +119,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity 140ms var(--ease-out-quint);
 }
 
 .pill[data-phase="recording"] .recording,
@@ -86,96 +131,92 @@ body {
   opacity: 1;
 }
 
-.mic {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: var(--text);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-}
-
 .bars {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 40px;
+  gap: 3px;
+  height: 18px;
 }
 
-/* Each bar is 40 px tall (6 px idle + 34 px range) and scaled down, so a
-   level change is a transform, never a layout. */
+/* Each bar is 18 px tall and scaled down, so a level change is a
+   transform, never a layout. The fill runs light at the top to deep at
+   the bottom, and its hue drifts from a deeper amber on the left to gold
+   on the right (`--shift`, set per bar). */
 .bar {
+  --shift: 0;
   width: 3px;
-  height: 40px;
-  border-radius: 4px;
-  background: var(--bar-colour);
-  transform: scaleY(0.15);
-  will-change: transform;
+  height: 18px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    oklch(from var(--wave) calc(l + 0.09) calc(c * 0.8) calc(h + 6 + var(--shift))),
+    oklch(from var(--wave) l c calc(h + var(--shift))) 55%,
+    oklch(from var(--wave) calc(l - 0.12) calc(c * 1.1) calc(h - 18 + var(--shift)))
+  );
+  transform: scaleY(0.1667);
+  will-change: transform, opacity;
 }
 
-/* Near silence: bars rest at 6 px and breathe on a 1.2 s cycle. */
-.bars.idle .bar {
-  animation: breathe 1.2s ease-in-out infinite;
+/* Transcribing: the bars settle into a row of dots and a soft hump runs
+   across them, left to right. */
+.thinking .bar {
+  opacity: 0.35;
+  animation: think 1100ms var(--ease-out-quint) infinite;
 }
 
-@keyframes breathe {
+@keyframes think {
   0%,
+  55%,
   100% {
-    opacity: 0.45;
+    opacity: 0.35;
+    transform: scaleY(0.1667);
   }
-  50% {
+  22% {
     opacity: 1;
-  }
-}
-
-.label {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-}
-
-.dots {
-  display: flex;
-  gap: 5px;
-}
-
-.dots span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--bar-colour);
-  opacity: 0.3;
-  animation: pulse 900ms ease-in-out infinite;
-}
-
-.dots span:nth-child(2) {
-  animation-delay: 150ms;
-}
-
-.dots span:nth-child(3) {
-  animation-delay: 300ms;
-}
-
-@keyframes pulse {
-  0%,
-  60%,
-  100% {
-    opacity: 0.3;
-    transform: scale(0.85);
-  }
-  30% {
-    opacity: 1;
-    transform: scale(1);
+    transform: scaleY(0.4444);
   }
 }
 
 .glyph {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   fill: none;
-  stroke: var(--text);
-  stroke-width: 2.2;
+  stroke-width: 2.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.tick {
+  stroke: var(--wave);
+}
+
+.cross {
+  stroke: var(--muted);
+}
+
+.label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* Reduced motion: every change is instant. The wave still shows the level
+   (main.ts drops the ripple and sway), and Transcribing is a still row of
+   dots. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .pill,
+  .pill.leaving {
+    transform: none;
+  }
+  .thinking .bar {
+    opacity: 0.6;
+  }
 }

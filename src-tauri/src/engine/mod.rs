@@ -63,6 +63,11 @@ pub trait SpeechEngine: Send + Sync {
     fn unload(&mut self);
     fn is_loaded(&self) -> bool;
     fn transcribe(&self, pcm16k_mono: &[f32], language: Option<&str>) -> Result<Transcript>;
+    /// True when "Unload model when idle" should leave this engine alone:
+    /// it holds little memory of its own and takes long to load again.
+    fn stays_loaded_when_idle(&self) -> bool {
+        false
+    }
 }
 
 /// True if the text contains Arabic script (Urdu Nastaliq included). Output

@@ -167,19 +167,28 @@ fn unpacked_marker(archive: &Path) -> PathBuf {
 fn unpack(archive: &Path, dir: &Path, cancel: &AtomicBool) -> Result<()> {
     let file = File::open(archive).with_context(|| format!("could not open {}", archive.display()))?;
     let mut zip = zip::ZipArchive::new(file).context("not a zip archive")?;
-    let names: Vec<PathBuf> = (0..zip.len())
+    let entries: Vec<(PathBuf, bool)> = (0..zip.len())
         .map(|i| {
-            zip.by_index(i)
-                .ok()
+            let entry = zip.by_index(i).ok();
+            let is_dir = entry.as_ref().is_some_and(|e| e.is_dir());
+            entry
                 .and_then(|e| e.enclosed_name())
+                .map(|name| (name, is_dir))
                 .context("archive has an unsafe path")
         })
         .collect::<Result<_>>()?;
-    let top = names
+    // The top folder may have an entry of its own (Qualcomm's zips do), so
+    // only files have to sit inside it.
+    let top = entries
         .first()
-        .and_then(|p| p.components().next())
-        .filter(|first| names.iter().all(|p| p.components().count() > 1 && p.components().next() == Some(*first)))
+        .and_then(|(p, _)| p.components().next())
+        .filter(|first| {
+            entries.iter().all(|(p, is_dir)| {
+                p.components().next() == Some(*first) && (*is_dir || p.components().count() > 1)
+            })
+        })
         .map(|c| PathBuf::from(c.as_os_str()));
+    let names: Vec<PathBuf> = entries.into_iter().map(|(name, _)| name).collect();
     for (i, name) in names.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
             return Err(Cancelled.into());
@@ -198,6 +207,39 @@ fn unpack(archive: &Path, dir: &Path, cancel: &AtomicBool) -> Result<()> {
     }
     fs::remove_file(archive).ok();
     fs::write(unpacked_marker(archive), b"").context("could not finish unpacking")?;
+    Ok(())
+}
+
+/// Earlier versions kept the top folder of an archive whose folder had its own
+/// entry, so the model's files sat one level too deep and it could not load.
+/// Moves them up. A file already in place is kept (it may be mapped by a loaded
+/// model) and the copy below it removed.
+pub fn repair_unpacked(dir: &Path, file: &ModelFile) -> Result<()> {
+    let Some(stem) = file.name.strip_suffix(".zip").filter(|_| file.unzip) else {
+        return Ok(());
+    };
+    let nested = dir.join(stem);
+    if !nested.is_dir() || !file_complete(&dir.join(&file.name), file) {
+        return Ok(());
+    }
+    move_up(&nested, dir)?;
+    fs::remove_dir(&nested).with_context(|| format!("could not remove {}", nested.display()))
+}
+
+fn move_up(from: &Path, to: &Path) -> Result<()> {
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            fs::create_dir_all(&target)?;
+            move_up(&entry.path(), &target)?;
+            fs::remove_dir(entry.path())?;
+        } else if target.is_file() {
+            fs::remove_file(entry.path())?;
+        } else {
+            fs::rename(entry.path(), &target)?;
+        }
+    }
     Ok(())
 }
 
@@ -469,7 +511,7 @@ mod tests {
             name: "Test".into(),
             family: Family::Whisper,
             accuracy: 1,
-            speed: 1,
+            clip_ms: 1,
             languages: vec!["*".into()],
             languages_label: String::new(),
             ram_mb: 1,
@@ -552,6 +594,101 @@ mod tests {
         assert_eq!(fs::read(dir.join("sub").join("decoder.data")).unwrap(), b"dec");
         assert!(!dir.join("model.zip").exists());
         assert!(file_complete(&dir.join("model.zip"), &model.files[0]));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// How Qualcomm AI Hub's zips are laid out: the top folder has an entry of
+    /// its own, before the files in it.
+    #[test]
+    fn a_folder_entry_for_the_top_folder_is_dropped_too() {
+        use std::io::Write as _;
+        let options = zip::write::SimpleFileOptions::default();
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer.add_directory("pkg/", options).unwrap();
+        writer.start_file("pkg/encoder.onnx", options).unwrap();
+        writer.write_all(b"enc").unwrap();
+        writer.start_file("pkg/decoder.bin", options).unwrap();
+        writer.write_all(b"dec").unwrap();
+        let data = writer.finish().unwrap().into_inner();
+
+        let dir = temp_dir("zip-folder-entry");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("pkg.zip");
+        fs::write(&archive, data).unwrap();
+        unpack(&archive, &dir, &AtomicBool::new(false)).unwrap();
+        assert_eq!(fs::read(dir.join("encoder.onnx")).unwrap(), b"enc");
+        assert_eq!(fs::read(dir.join("decoder.bin")).unwrap(), b"dec");
+        assert!(!dir.join("pkg").exists(), "the top folder was kept");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_kept_top_folder_is_moved_up_without_touching_files_in_place() {
+        let dir = temp_dir("zip-repair");
+        let nested = dir.join("pkg");
+        fs::create_dir_all(nested.join("sub")).unwrap();
+        fs::write(nested.join("encoder.onnx"), b"enc").unwrap();
+        fs::write(nested.join("decoder.bin"), b"nested").unwrap();
+        fs::write(nested.join("sub").join("weights"), b"w").unwrap();
+        fs::write(dir.join("decoder.bin"), b"in place").unwrap();
+        let file = ModelFile {
+            name: "pkg.zip".into(),
+            url: String::new(),
+            size: 1,
+            sha256: None,
+            git_sha1: None,
+            mirrors: Vec::new(),
+            unzip: true,
+        };
+        // Not finished unpacking: left alone.
+        repair_unpacked(&dir, &file).unwrap();
+        assert!(nested.join("encoder.onnx").exists());
+
+        fs::write(dir.join("pkg.zip.unpacked"), b"").unwrap();
+        repair_unpacked(&dir, &file).unwrap();
+        assert_eq!(fs::read(dir.join("encoder.onnx")).unwrap(), b"enc");
+        assert_eq!(fs::read(dir.join("decoder.bin")).unwrap(), b"in place");
+        assert_eq!(fs::read(dir.join("sub").join("weights")).unwrap(), b"w");
+        assert!(!nested.exists());
+        // Nothing left to do the second time.
+        repair_unpacked(&dir, &file).unwrap();
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Downloads a real catalogue model into a temp folder and loads it, so a
+    /// change to the downloader is checked against the zip Qualcomm serves:
+    ///
+    ///   MURMUR_MODEL_ID=whisper-large-v3-turbo-npu cargo test --release fresh_download_loads -- --ignored --nocapture
+    #[test]
+    #[ignore = "downloads a model"]
+    fn fresh_download_loads() {
+        use crate::engine::{onnx, EngineOptions};
+        let id = std::env::var("MURMUR_MODEL_ID").unwrap();
+        let model = crate::models::catalog::find(&id).unwrap();
+        let dir = std::env::temp_dir().join(format!("murmur-fresh-{id}"));
+        fs::remove_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).unwrap();
+        let mut shown = 0;
+        download_model(&model, &dir, &AtomicBool::new(false), |done, total| {
+            let percent = done * 100 / total.max(1);
+            if percent >= shown + 10 {
+                shown = percent;
+                println!("download {percent}%");
+            }
+        })
+        .unwrap();
+        let mut names: Vec<String> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        println!("{names:?}");
+        onnx::use_vendored_runtime();
+        let spec = crate::models::registry::LoadSpec { id: id.clone(), family: model.family, path: dir.clone() };
+        let mut engine = crate::engine::host::engine_for(&spec).unwrap();
+        println!("engine {}", engine.id());
+        engine.load(&dir, &EngineOptions::default()).unwrap();
+        let t = engine.transcribe(&vec![0f32; 16_000], Some("en")).unwrap();
+        println!("loaded and ran in {} ms", t.inference_ms);
+        engine.unload();
+        drop(engine);
         fs::remove_dir_all(&dir).ok();
     }
 

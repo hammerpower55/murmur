@@ -41,6 +41,10 @@ pub struct Settings {
     pub main_hotkey: Vec<String>,
     pub toggle_hotkey_enabled: bool,
     pub toggle_hotkey: Vec<String>,
+    /// Screenplay mode: a hands free dictation that the word fixer's model
+    /// turns into a screenplay.
+    pub script_hotkey_enabled: bool,
+    pub script_hotkey: Vec<String>,
     // Microphone: device name, None for the Windows default.
     pub microphone: Option<String>,
     /// Percent, 100 leaves the signal as it is.
@@ -53,7 +57,10 @@ pub struct Settings {
     // Overlay
     pub overlay_enabled: bool,
     pub overlay_position: OverlayPosition,
-    pub overlay_colour: String,
+    /// The overlay wave's base colour (stored as waveColour). The older
+    /// overlayColour key held white bars and is left unread, so earlier
+    /// installs pick up the amber default.
+    pub wave_colour: String,
     // Sounds
     pub sounds_enabled: bool,
     pub sound_volume: u32,
@@ -87,6 +94,8 @@ impl Default for Settings {
             main_hotkey: vec!["ctrl".into(), "win".into()],
             toggle_hotkey_enabled: false,
             toggle_hotkey: vec!["ctrl".into(), "shift".into(), "space".into()],
+            script_hotkey_enabled: false,
+            script_hotkey: vec!["ctrl".into(), "alt".into(), "space".into()],
             microphone: None,
             input_gain: 100,
             unload_after_minutes: 10,
@@ -94,7 +103,7 @@ impl Default for Settings {
             roman_urdu: true,
             overlay_enabled: true,
             overlay_position: OverlayPosition::BottomCentre,
-            overlay_colour: "#ffffff".into(),
+            wave_colour: "#f6b83d".into(),
             sounds_enabled: true,
             sound_volume: 60,
             remove_fillers: true,
@@ -129,6 +138,13 @@ impl Settings {
         {
             bail!("Pick a hands free hotkey that differs from the main one.");
         }
+        keys::validate_hotkey(&self.script_hotkey)?;
+        if self.script_hotkey_enabled
+            && (keys::same_combo(&self.main_hotkey, &self.script_hotkey)
+                || (self.toggle_hotkey_enabled && keys::same_combo(&self.toggle_hotkey, &self.script_hotkey)))
+        {
+            bail!("Pick a screenplay hotkey that differs from the other hotkeys.");
+        }
         if !(GAIN_RANGE.0..=GAIN_RANGE.1).contains(&self.input_gain) {
             bail!("Input gain must be between 25% and 400%.");
         }
@@ -141,8 +157,8 @@ impl Settings {
         if self.sound_volume > 100 {
             bail!("Volume must be between 0 and 100.");
         }
-        if !is_colour(&self.overlay_colour) {
-            bail!("Pick a bar colour like #ffffff.");
+        if !is_colour(&self.wave_colour) {
+            bail!("Pick a wave colour like #f6b83d.");
         }
         let lang = self.language.as_str();
         if !(lang == "auto"
@@ -270,7 +286,7 @@ mod tests {
         assert_eq!(s.language, "en");
         assert!(s.roman_urdu);
         assert_eq!(s.sound_volume, 60);
-        assert_eq!(s.overlay_colour, "#ffffff");
+        assert_eq!(s.wave_colour, "#f6b83d");
         assert_eq!(s.overlay_position, OverlayPosition::BottomCentre);
         assert_eq!(s.typing_wpm, 40);
         assert_eq!(s.unload_after_minutes, 10);
@@ -304,14 +320,14 @@ mod tests {
         let s = from_stored(&stored(json!({
             "soundVolume": "loud",
             "typingWpm": 5000,
-            "overlayColour": "red",
+            "waveColour": "red",
             "mainHotkey": ["a"],
             "inputGain": 150
         })));
         let d = Settings::default();
         assert_eq!(s.sound_volume, d.sound_volume);
         assert_eq!(s.typing_wpm, d.typing_wpm);
-        assert_eq!(s.overlay_colour, d.overlay_colour);
+        assert_eq!(s.wave_colour, d.wave_colour);
         assert_eq!(s.main_hotkey, d.main_hotkey);
         assert_eq!(s.input_gain, 150);
     }

@@ -34,10 +34,27 @@ pub fn countable_words(text: &str) -> Vec<String> {
 
 /// Everyday Roman Urdu words beyond the spec's stopword list, used only to
 /// tell Roman Urdu apart (the stopword list also feeds word counts).
-const MORE_ROMAN_URDU: [&str; 18] = [
+const MORE_ROMAN_URDU: &[&str] = &[
     "pata", "mujhe", "mujhse", "nahin", "sach", "chalo", "wala", "wali", "wale", "kal",
     "hamara", "tumhara", "chahiye", "sakta", "sakti", "bilkul", "zaroor", "shukriya",
+    "jaldi", "kabhi", "dheere", "bhej", "batao", "bolo", "dekho", "suno", "aao", "jao", "karlo",
+    "lagta", "lagti", "samajh", "hoon", "tumhe", "mujh", "hamein", "aaj", "parso", "subah", "shaam",
+    "raat", "ghar", "kaam", "baat", "paisa", "paise", "dost", "bhai", "khana", "pani", "ammi", "abbu",
 ];
+
+/// Roman Urdu that is also ordinary English or too short to tell: "the main
+/// page", "open a tab", "on par", "ho ho". They never settle it alone.
+const AMBIGUOUS_URDU: &[&str] = &[
+    "main", "tab", "par", "hum", "mere", "bas", "ab", "ho", "ya", "na", "ne", "un", "pe", "jo", "se", "tak",
+];
+
+/// Whether `text` holds a word that can only be Roman Urdu. English writing
+/// rules stay off these sentences.
+pub fn clearly_roman_urdu(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| !AMBIGUOUS_URDU.contains(&w) && roman_urdu_words(w) > 0)
+}
 
 /// Number of words in `text` that are Roman Urdu and not also English.
 pub fn roman_urdu_words(text: &str) -> usize {

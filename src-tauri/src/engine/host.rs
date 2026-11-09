@@ -163,7 +163,8 @@ impl EngineHost {
         let Ok(mut inner) = self.inner.lock() else {
             return false;
         };
-        if inner.engine.is_none() || inner.loading.is_some() {
+        let stays = inner.engine.as_ref().is_some_and(|e| e.stays_loaded_when_idle());
+        if inner.engine.is_none() || inner.loading.is_some() || stays {
             return false;
         }
         inner.engine = None;
@@ -336,6 +337,36 @@ mod tests {
         let (id, t) = host.transcribe(&[0.0; 16000], None).unwrap();
         assert_eq!((id.as_str(), t.text.as_str()), ("whisper-small", "one"));
         assert!(host.is_loaded());
+    }
+
+    struct Resident;
+
+    impl SpeechEngine for Resident {
+        fn id(&self) -> &'static str {
+            "resident"
+        }
+        fn load(&mut self, _: &Path, _: &EngineOptions) -> Result<()> {
+            Ok(())
+        }
+        fn unload(&mut self) {}
+        fn is_loaded(&self) -> bool {
+            true
+        }
+        fn transcribe(&self, _: &[f32], _: Option<&str>) -> Result<Transcript> {
+            bail!("unused")
+        }
+        fn stays_loaded_when_idle(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn an_engine_that_stays_loaded_is_not_parked() {
+        let host = EngineHost::with_loader(|_, _| Ok(Arc::new(Resident)));
+        loaded(&host, "one");
+        assert!(!host.park());
+        assert!(host.is_loaded());
+        assert_eq!(host.active().as_deref(), Some("whisper-small"));
     }
 
     #[test]

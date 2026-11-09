@@ -93,6 +93,11 @@ const HEDGE_GUARDS: &[&str] = &[
     "this", "that", "which", "what's", "any", "some",
 ];
 
+/// "I mean we should go" opens a clause; "I mean it" does not.
+const I_MEAN_CLAUSE: &[&str] = &[
+    "we", "they", "he", "she", "the", "there", "that's", "it's", "i", "i'm", "we're", "they're",
+];
+
 fn remove_hedges(tokens: &mut Vec<Token>) {
     let hedges: Vec<Vec<String>> = HEDGES
         .iter()
@@ -109,7 +114,14 @@ fn remove_hedges(tokens: &mut Vec<Token>) {
                 && tokens[i - 1]
                     .word()
                     .is_some_and(|w| HEDGE_GUARDS.contains(&w.to_lowercase().as_str()));
-            if followed_ok && !guarded {
+            // "card, you know it" and "I mean we should" are asides too.
+            let aside = (i > 0 && tokens[i - 1].is_comma() && tokens[i].is_word_ci("you"))
+                || (at_sentence_start(tokens, i)
+                    && tokens[i].is_word_ci("i")
+                    && tokens.get(end).and_then(Token::word).is_some_and(|w| {
+                        I_MEAN_CLAUSE.contains(&w.to_lowercase().as_str())
+                    }));
+            if (followed_ok && !guarded) || aside {
                 cut(tokens, i, end);
                 i = i.saturating_sub(1);
                 continue;
@@ -119,13 +131,29 @@ fn remove_hedges(tokens: &mut Vec<Token>) {
     }
 }
 
+const LIKE_FILLS_BEFORE: &[&str] = &[
+    "really", "so", "very", "totally", "just", "super", "literally", "nobody", "everybody", "everyone", "nothing",
+];
+/// "I like really good food", "things like really old cars".
+const LIKE_MEANS_AFTER: &[&str] = &[
+    "i", "you", "we", "they", "would", "don't", "didn't", "things", "stuff", "something", "look", "looks", "feel",
+    "feels", "seem", "seems", "sound", "sounds", "really", "also", "just",
+];
+
 fn remove_like(tokens: &mut Vec<Token>) {
     let mut i = 0;
     while i < tokens.len() {
-        if tokens[i].is_word_ci("like") {
+        // "like" and "basically" between commas, "like" opening a sentence,
+        // and "like" before a word it cannot compare: "it was like really
+        // hard", "and then like nobody replied".
+        let like = tokens[i].is_word_ci("like");
+        if like || tokens[i].is_word_ci("basically") {
             let between_commas =
                 i > 0 && tokens[i - 1].is_comma() && tokens.get(i + 1).is_some_and(Token::is_comma);
-            if between_commas || at_sentence_start(tokens, i) {
+            let stray = like
+                && tokens.get(i + 1).and_then(Token::word).is_some_and(|w| LIKE_FILLS_BEFORE.contains(&w.to_lowercase().as_str()))
+                && !(i > 0 && tokens[i - 1].word().is_some_and(|w| LIKE_MEANS_AFTER.contains(&w.to_lowercase().as_str())));
+            if between_commas || stray || (like && at_sentence_start(tokens, i)) {
                 cut(tokens, i, i + 1);
                 i = i.saturating_sub(1);
                 continue;
@@ -169,9 +197,44 @@ const SO_FOLLOWERS: &[&str] = &[
     "your",
 ];
 
+/// Openers that only go along with a "so": "Okay, so I think" says "I think",
+/// but "Okay, I think" keeps its "Okay".
+const BEFORE_SO: &[&str] = &["okay", "ok", "alright", "right", "yeah", "well"];
+
+/// The token after "so" (and a comma) when it introduces a clause.
+fn so_clause(tokens: &[Token], so: usize) -> Option<usize> {
+    if !tokens.get(so)?.is_word_ci("so") {
+        return None;
+    }
+    match tokens.get(so + 1)? {
+        t if t.is_comma() => Some(so + 1),
+        Token::Word(next) if SO_FOLLOWERS.contains(&next.to_lowercase().as_str()) => Some(so + 1),
+        _ => None,
+    }
+}
+
 fn remove_openers(tokens: &mut Vec<Token>) {
     let mut i = 0;
     while i < tokens.len() {
+        // "Okay, so", "Yeah so", and "So yeah," before a clause.
+        if at_sentence_start(tokens, i) {
+            let lead = tokens[i].word().map(str::to_lowercase);
+            if lead.as_deref().is_some_and(|w| BEFORE_SO.contains(&w)) {
+                let so = if tokens.get(i + 1).is_some_and(Token::is_comma) { i + 2 } else { i + 1 };
+                if let Some(next) = so_clause(tokens, so) {
+                    cut(tokens, i, next);
+                    continue;
+                }
+            }
+            if lead.as_deref() == Some("so") {
+                let (a, b) = (tokens.get(i + 1), tokens.get(i + 2));
+                let filler = a.is_some_and(|t| t.is_word_ci("yeah") || t.is_word_ci("okay"));
+                if filler && b.is_some_and(Token::is_comma) {
+                    cut(tokens, i, i + 2);
+                    continue;
+                }
+            }
+        }
         let removable = at_sentence_start(tokens, i)
             && match tokens[i].word().map(str::to_lowercase).as_deref() {
                 Some("basically") | Some("actually") => true,
@@ -196,7 +259,7 @@ fn remove_openers(tokens: &mut Vec<Token>) {
 const STUTTER_WORDS: &[&str] = &[
     "the", "a", "an", "i", "to", "and", "of", "in", "is", "it", "we", "you", "my", "for", "on",
     "at", "but", "he", "she", "they", "this", "with", "be", "are", "was", "can", "will", "just",
-    "or", "if", "me", "our", "your", "their", "his", "her", "its", "so", "we're", "i'm", "it's",
+    "or", "if", "me", "our", "your", "their", "his", "its", "so", "we're", "i'm", "it's",
 ];
 
 fn remove_stutters(tokens: &mut Vec<Token>) {

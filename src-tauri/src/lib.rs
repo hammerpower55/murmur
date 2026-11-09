@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod dictation;
 mod engine;
+mod hardware;
 mod hotkey;
 mod inject;
 #[cfg(target_os = "macos")]
@@ -11,6 +12,7 @@ mod macos;
 mod models;
 mod overlay;
 mod paths;
+mod screenplay;
 mod selftest;
 mod settings;
 mod sound;
@@ -106,9 +108,27 @@ fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
 #[cfg(windows)]
 fn on_run_event(_app: &AppHandle, _event: tauri::RunEvent) {}
 
+/// A second launch brings the running window forward, unless it is launch at
+/// login, which stays in the tray.
+fn second_launch_shows_window(args: &[String]) -> bool {
+    !args.iter().any(|a| a == HIDDEN_FLAG)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // One copy at a time: each would install its own hotkey hook and paste
+    // every dictation again. The plugin must come first, so a second copy exits
+    // before anything else starts. `--check-model` runs beside the app, and
+    // debug builds can run next to an installed copy.
+    if !cfg!(debug_assertions) && selftest::requested().is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if second_launch_shows_window(&args) {
+                tray::show_main(app);
+            }
+        }));
+    }
+    let app = builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .clear_targets()
@@ -267,5 +287,17 @@ pub fn run() {
     if let Err(err) = result {
         eprintln!("failed to start: {err}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_second_launch_shows_the_window_unless_started_at_login() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(second_launch_shows_window(&args(&["murmur.exe"])));
+        assert!(!second_launch_shows_window(&args(&["murmur.exe", HIDDEN_FLAG])));
     }
 }

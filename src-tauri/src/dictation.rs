@@ -18,7 +18,7 @@ use crate::engine::fixer::Fixer;
 use crate::engine::host::EngineHost;
 use crate::engine::{has_arabic_script, Transcript};
 use crate::hotkey::keys;
-use crate::hotkey::listener::{self, Combo, HotkeyControl, HotkeyEvent};
+use crate::hotkey::listener::{self, Combo, HotkeyControl, HotkeyEvent, Hotkeys};
 use crate::hotkey::state::{Effect, Input, Machine, Mode, State};
 use crate::inject::{field, focus, icons, paste};
 use crate::models::catalog::Family;
@@ -26,9 +26,11 @@ use crate::overlay::events::{Overlay, Phase, Style};
 use crate::settings::{self, Settings};
 use crate::sound::player::{Cue, SoundPlayer};
 use crate::text::dictionary::DictEntry;
+use crate::text::context::Around;
 use crate::text::fixup::{Context as FixContext, Swap};
 use crate::text::learn;
 use crate::text::smart::AppKind;
+use crate::screenplay;
 use crate::text::store::TextStore;
 use crate::text::{self, snippets::SnippetContext, TextSettings};
 
@@ -52,6 +54,9 @@ pub struct Dirs {
 }
 
 /// The running dictation pipeline, for the tray and the settings commands.
+/// How long a screenplay waits for the word fixer's model to load.
+const SCREENPLAY_LOAD_WAIT: Duration = Duration::from_secs(60);
+
 #[derive(Clone)]
 pub struct Dictation {
     tx: Sender<(HotkeyEvent, Instant)>,
@@ -62,12 +67,16 @@ pub struct Dictation {
     recording: Arc<AtomicBool>,
 }
 
-fn combos(s: &Settings) -> (Combo, Option<Combo>) {
+fn combos(s: &Settings) -> Hotkeys {
     let main = keys::combo(&s.main_hotkey).unwrap_or_else(|_| Combo::ctrl_win());
     let toggle = s
         .toggle_hotkey_enabled
         .then(|| keys::combo(&s.toggle_hotkey).unwrap_or_else(|_| Combo::ctrl_shift_space()));
-    (main, toggle)
+    let script = s
+        .script_hotkey_enabled
+        .then(|| keys::combo(&s.script_hotkey).ok())
+        .flatten();
+    Hotkeys { main, toggle, script }
 }
 
 fn input_config(s: &Settings) -> InputConfig {
@@ -79,15 +88,14 @@ fn input_config(s: &Settings) -> InputConfig {
 
 fn style(s: &Settings) -> Style {
     Style {
-        bar_colour: s.overlay_colour.clone(),
+        wave_colour: s.wave_colour.clone(),
     }
 }
 
 impl Dictation {
     /// Pushes changed settings to the hook, microphone, overlay and sounds.
     pub fn apply(&self, s: &Settings) {
-        let (main, toggle) = combos(s);
-        self.hotkeys.set_combos(main, toggle);
+        self.hotkeys.set_combos(combos(s));
         self.recorder.configure(input_config(s));
         self.overlay
             .configure(s.overlay_enabled, s.overlay_position, style(s));
@@ -130,8 +138,7 @@ pub fn spawn(
     let (tx, rx) = mpsc::channel();
     let recording = Arc::new(AtomicBool::new(false));
     let hotkeys = HotkeyControl::new();
-    let (main, toggle) = combos(&initial);
-    listener::spawn(main, toggle, recording.clone(), tx.clone(), hotkeys.clone());
+    listener::spawn(combos(&initial), recording.clone(), tx.clone(), hotkeys.clone());
 
     let overlay = Overlay::new(
         app.clone(),
@@ -175,7 +182,7 @@ pub fn spawn(
                 capture_started: None,
                 engine,
                 fixer,
-                before_cursor: None,
+                around_cursor: None,
                 watching: Arc::new(AtomicBool::new(false)),
                 recent: None,
                 db,
@@ -184,6 +191,7 @@ pub fn spawn(
                 settings: shared,
                 text,
                 last_used: Instant::now(),
+                screenplay: false,
             }
             .run(rx)
         })
@@ -272,7 +280,7 @@ struct Controller {
     /// The fix-up model, used when it is downloaded and switched on.
     fixer: Arc<Fixer>,
     /// The text before the cursor, being read while the user speaks.
-    before_cursor: Option<Receiver<Option<String>>>,
+    around_cursor: Option<Receiver<Option<Around>>>,
     /// Set to stop watching the last paste for corrections.
     watching: Arc<AtomicBool>,
     /// The last dictation: app, final text and when.
@@ -287,6 +295,8 @@ struct Controller {
     text: Arc<TextStore>,
     /// Last dictation, for unloading the model after a quiet spell.
     last_used: Instant,
+    /// The current recording was started with the screenplay hotkey.
+    screenplay: bool,
 }
 
 impl Controller {
@@ -333,10 +343,14 @@ impl Controller {
                     let input = match event {
                         HotkeyEvent::MainDown => Input::HotkeyDown,
                         HotkeyEvent::MainUp => Input::HotkeyUp,
-                        HotkeyEvent::ToggleDown => Input::ToggleHotkey,
+                        HotkeyEvent::ToggleDown | HotkeyEvent::ScriptDown => Input::ToggleHotkey,
                         HotkeyEvent::Escape => Input::Escape,
                     };
                     let effect = self.machine.handle(input, at);
+                    // Whichever hotkey starts a recording decides what it becomes.
+                    if effect == Effect::StartCapture {
+                        self.screenplay = event == HotkeyEvent::ScriptDown;
+                    }
                     self.drive(effect);
                 }
                 None => {
@@ -374,10 +388,15 @@ impl Controller {
                 self.engine.wake();
                 self.last_used = Instant::now();
                 self.watching.store(true, Ordering::SeqCst);
-                self.before_cursor = None;
-                if self.settings().fix_misheard_words && self.fixer.has_model() {
+                self.around_cursor = None;
+                let prefs = self.settings();
+                let fixing = prefs.fix_misheard_words && self.fixer.has_model();
+                if fixing {
                     self.fixer.wake();
-                    self.before_cursor = Some(field::read_before_cursor());
+                }
+                // Terminals are never read: a prompt is not prose to fit.
+                if (fixing || prefs.smart_formatting) && !focus::foreground().is_terminal() {
+                    self.around_cursor = Some(field::read_around_cursor());
                 }
                 // Pill first so it shows well inside 100 ms, then the cue,
                 // then the microphone once the cue is under way.
@@ -461,6 +480,9 @@ impl Controller {
     /// Transcribes, cleans up and pastes one recording into the app that had
     /// focus when the hotkey was released. Returns false if nothing was said.
     fn dictate(&mut self, rec: &Recording) -> Result<bool> {
+        if std::mem::take(&mut self.screenplay) {
+            return self.write_screenplay(rec);
+        }
         let target = focus::foreground();
         let prefs = self.settings();
         let whisper = self.engine.active_family() == Some(Family::Whisper);
@@ -472,8 +494,13 @@ impl Controller {
         }
 
         let user = self.text.get();
+        let around = self
+            .around_cursor
+            .take()
+            .and_then(|rx| rx.recv_timeout(CONTEXT_WAIT).ok().flatten());
+        let before = around.as_ref().map(|a| a.before.clone()).unwrap_or_default();
         let (heard, swaps) = if prefs.fix_misheard_words {
-            self.fix_up(&raw, &target, &user.dictionary, prefs.fix_any_word)
+            self.fix_up(&raw, before, &target, &user.dictionary, prefs.fix_any_word)
         } else {
             (raw.clone(), Vec::new())
         };
@@ -484,6 +511,7 @@ impl Controller {
             roman_urdu: prefs.roman_urdu,
             smart_formatting: prefs.smart_formatting,
             app: AppKind::detect(&target.exe, &target.title),
+            field: around,
             dictionary: user.dictionary,
             snippets: user.snippets,
             roman_urdu_map: user.roman_urdu_map,
@@ -554,6 +582,65 @@ impl Controller {
         Ok(true)
     }
 
+    /// Screenplay mode: the transcript, with the user's dictionary applied
+    /// so names are spelled their way, becomes a screenplay written by the
+    /// word fixer's model, which is pasted and saved like any dictation.
+    fn write_screenplay(&mut self, rec: &Recording) -> Result<bool> {
+        let target = focus::foreground();
+        let prefs = self.settings();
+        let whisper = self.engine.active_family() == Some(Family::Whisper);
+        let language = prefs.engine_language(whisper);
+        let (model, transcript) = self.transcribe(rec, language.as_deref())?;
+        let raw = transcript.text.clone();
+        if raw.trim().is_empty() {
+            return Ok(false);
+        }
+        let user = self.text.get();
+        let spelled = text::process(
+            &raw,
+            &TextSettings {
+                remove_fillers: false,
+                voice_punctuation: false,
+                add_trailing_space: false,
+                roman_urdu: prefs.roman_urdu,
+                smart_formatting: false,
+                app: AppKind::detect(&target.exe, &target.title),
+                field: None,
+                dictionary: user.dictionary,
+                snippets: Vec::new(),
+                roman_urdu_map: user.roman_urdu_map,
+            },
+            &SnippetContext::now(String::new()),
+        );
+        let llm = self
+            .fixer
+            .model(SCREENPLAY_LOAD_WAIT)
+            .context("no word fixer is downloaded to write the screenplay")?;
+        let started = Instant::now();
+        let script = screenplay::write(&llm, self.fixer.thinking(), &spelled, |_| true)?;
+        log::info!(
+            "screenplay of {} chars from {} words in {} ms",
+            script.chars().count(),
+            spelled.split_whitespace().count(),
+            started.elapsed().as_millis()
+        );
+        let pasted = paste::paste(&script, &target);
+        let language = transcript.language.clone().or(language);
+        self.record(
+            rec,
+            &model,
+            &transcript,
+            &raw,
+            script.trim_end(),
+            &target,
+            language,
+            prefs.keep_audio_clips,
+            Vec::new(),
+        );
+        pasted?;
+        Ok(true)
+    }
+
     /// The transcript with misheard words fixed, using what is already in
     /// the field, earlier dictation and the dictionary as context, and the
     /// words swapped. As heard when the fix-up model is missing, still
@@ -561,17 +648,14 @@ impl Controller {
     fn fix_up(
         &mut self,
         raw: &str,
+        before: String,
         target: &focus::FocusedApp,
         dictionary: &[DictEntry],
         any_word: bool,
     ) -> (String, Vec<Swap>) {
-        let before = self.before_cursor.take();
         if !self.fixer.is_loaded() {
             return (raw.to_string(), Vec::new());
         }
-        let before = before
-            .and_then(|rx| rx.recv_timeout(CONTEXT_WAIT).ok().flatten())
-            .unwrap_or_default();
         // The field usually holds the earlier dictation already.
         let earlier = match &self.recent {
             Some((exe, text, at))

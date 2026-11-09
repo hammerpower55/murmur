@@ -25,18 +25,21 @@ use crate::settings::OverlayPosition;
 
 pub const LABEL: &str = "overlay";
 
-/// Capsule size from the spec, in logical pixels.
-const PILL_W: i32 = 240;
-const PILL_H: i32 = 56;
+/// Capsule size in logical pixels, matching `src/overlay/overlay.css`. The
+/// capsule is compact while recording and widens for the error line; the
+/// window fits the wide one.
+const PILL_W: i32 = 176;
+const PILL_H: i32 = 32;
 /// Room around the capsule for its shadow and the appear animation.
-const MARGIN: i32 = 20;
+const MARGIN: i32 = 16;
 const WINDOW_W: i32 = PILL_W + 2 * MARGIN;
 const WINDOW_H: i32 = PILL_H + 2 * MARGIN;
-/// Gap between the capsule and the screen edge it sits against (the
-/// taskbar for the bottom positions).
-const ABOVE_TASKBAR: i32 = 48;
-/// Gap between the capsule and the right edge in the bottom right position.
-const SIDE_GAP: i32 = 24;
+/// Gap between the capsule and the screen edge it sits against: just above
+/// the taskbar for the bottom positions, below the top edge for top centre.
+const EDGE_GAP: i32 = 12;
+/// Gap between the wide capsule and the right edge in the bottom right
+/// position.
+const SIDE_GAP: i32 = 16;
 
 pub struct OverlayWindow {
     // HWND is a raw pointer; stored as an integer so the struct is Send.
@@ -83,7 +86,7 @@ impl OverlayWindow {
     }
 
     /// Places the capsule on the monitor under the mouse: by default centred,
-    /// its bottom edge 48 px above the taskbar. Only moves when the target
+    /// its bottom edge 12 px above the taskbar. Only moves when the target
     /// rectangle changed, so the webview is not resized on every dictation.
     pub fn place_on_cursor_monitor(&self) -> Result<()> {
         let position = self
@@ -151,8 +154,8 @@ fn layout(work: RECT, dpi: u32, position: OverlayPosition) -> RECT {
         _ => work.left + (work.right - work.left - w) / 2,
     };
     let top = match position {
-        OverlayPosition::TopCentre => work.top + scale(ABOVE_TASKBAR) - scale(MARGIN),
-        _ => work.bottom - scale(ABOVE_TASKBAR) + scale(MARGIN) - h,
+        OverlayPosition::TopCentre => work.top + scale(EDGE_GAP) - scale(MARGIN),
+        _ => work.bottom - scale(EDGE_GAP) + scale(MARGIN) - h,
     };
     RECT {
         left,
@@ -176,23 +179,23 @@ mod tests {
     }
 
     #[test]
-    fn centred_and_48_px_above_the_taskbar_at_100_percent() {
+    fn centred_and_just_above_the_taskbar_at_100_percent() {
         // 1920x1080 with a 48 px taskbar at the bottom.
         let r = layout(work(0, 0, 1920, 1032), 96, OverlayPosition::BottomCentre);
         assert_eq!(r.right - r.left, WINDOW_W);
         assert_eq!(r.bottom - r.top, WINDOW_H);
         assert_eq!(r.left + (r.right - r.left) / 2, 960);
         // Capsule bottom = window bottom minus the margin.
-        assert_eq!(r.bottom - MARGIN, 1032 - 48);
+        assert_eq!(r.bottom - MARGIN, 1032 - 12);
     }
 
     #[test]
     fn scales_with_dpi() {
         // 150% scaling.
         let r = layout(work(0, 0, 2880, 1728), 144, OverlayPosition::BottomCentre);
-        assert_eq!(r.right - r.left, 420);
-        assert_eq!(r.bottom - r.top, 144);
-        assert_eq!(r.bottom - 30, 1728 - 72);
+        assert_eq!(r.right - r.left, 312);
+        assert_eq!(r.bottom - r.top, 96);
+        assert_eq!(r.bottom - 24, 1728 - 18);
     }
 
     #[test]
@@ -204,10 +207,10 @@ mod tests {
     #[test]
     fn top_centre_and_bottom_right() {
         let top = layout(work(0, 0, 1920, 1032), 96, OverlayPosition::TopCentre);
-        assert_eq!(top.top + MARGIN, 48);
+        assert_eq!(top.top + MARGIN, 12);
         assert_eq!(top.left + (top.right - top.left) / 2, 960);
         let corner = layout(work(0, 0, 1920, 1032), 96, OverlayPosition::BottomRight);
-        assert_eq!(corner.right - MARGIN, 1920 - 24);
-        assert_eq!(corner.bottom - MARGIN, 1032 - 48);
+        assert_eq!(corner.right - MARGIN, 1920 - 16);
+        assert_eq!(corner.bottom - MARGIN, 1032 - 12);
     }
 }

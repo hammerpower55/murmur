@@ -76,9 +76,17 @@ fn capitalise(tokens: &mut [Token]) {
     }
 }
 
-/// Uppercases the first letter, leaving handles, links and numbers alone.
+/// Uppercases the first letter, leaving handles, links, numbers and names
+/// with their own capitals ("iPad", "eBay") alone.
 pub(crate) fn capitalise_word(w: &str) -> String {
     if w.contains('@') || w.contains("://") || w.starts_with("www.") {
+        return w.to_string();
+    }
+    if w.chars().skip(1).any(char::is_uppercase) {
+        return w.to_string();
+    }
+    // "example.com", but not "e.g.", which is capitalised like a word.
+    if !w.ends_with('.') && w.contains('.') && w.chars().next().is_some_and(char::is_alphabetic) {
         return w.to_string();
     }
     let mut chars = w.chars();

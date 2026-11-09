@@ -81,6 +81,7 @@ export function Onboarding({ onDone, onSeeAllModels }: Props) {
               onCancel={() => void cancel(model.id)}
               onUse={() => void use(model.id)}
               onDelete={() => {}}
+              device={view.device}
             />
           )}
         </div>

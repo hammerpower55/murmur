@@ -239,6 +239,19 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
           disabled={!s.toggleHotkeyEnabled}
           onChange={(k) => set({ toggleHotkey: k })}
         />
+        <Row label="Screenplay hotkey">
+          <Toggle
+            label="Screenplay hotkey"
+            checked={s.scriptHotkeyEnabled}
+            onChange={(v) => set({ scriptHotkeyEnabled: v })}
+          />
+        </Row>
+        <HotkeyRow
+          label="Screenplay keys"
+          keys={s.scriptHotkey}
+          disabled={!s.scriptHotkeyEnabled}
+          onChange={(k) => set({ scriptHotkey: k })}
+        />
       </Section>
 
       <Section title="Microphone">
@@ -328,13 +341,13 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             ))}
           </select>
         </Row>
-        <Row label="Bar colour" htmlFor="colour">
+        <Row label="Wave colour" htmlFor="colour">
           <input
             id="colour"
             type="color"
             disabled={!s.overlayEnabled}
-            value={s.overlayColour}
-            onChange={(e) => set({ overlayColour: e.target.value })}
+            value={s.waveColour}
+            onChange={(e) => set({ waveColour: e.target.value })}
             className="h-7 w-10 cursor-pointer rounded border border-white/10 bg-transparent disabled:opacity-40"
           />
         </Row>

@@ -12,7 +12,12 @@ export interface ModelInfo {
   family: Family;
   /** 1 to 5; 0 for custom models (unknown). */
   accuracy: number;
+  /** 1 to 5 on this PC; 0 when unknown. */
   speed: number;
+  /** Milliseconds for a 5 s clip on this PC. */
+  clipMs: number;
+  /** clipMs comes from dictations on this PC rather than an estimate. */
+  measured: boolean;
   /** Language codes, or ["*"] for multilingual Whisper models. */
   languages: string[];
   languagesLabel: string;
@@ -41,6 +46,8 @@ export interface ModelsView {
   fixer: string | null;
   /** This PC has an NPU that NPU builds can run on. */
   npu: boolean;
+  /** The chip speeds are shown for, such as "Apple M2 Pro". */
+  device: string;
 }
 
 export interface TranscriptRow {
@@ -100,6 +107,9 @@ export interface Settings {
   mainHotkey: string[];
   toggleHotkeyEnabled: boolean;
   toggleHotkey: string[];
+  /** Screenplay mode: a hands free dictation written up as a screenplay. */
+  scriptHotkeyEnabled: boolean;
+  scriptHotkey: string[];
   microphone: string | null;
   inputGain: number;
   unloadAfterMinutes: number;
@@ -107,7 +117,7 @@ export interface Settings {
   romanUrdu: boolean;
   overlayEnabled: boolean;
   overlayPosition: OverlayPosition;
-  overlayColour: string;
+  waveColour: string;
   soundsEnabled: boolean;
   soundVolume: number;
   removeFillers: boolean;
