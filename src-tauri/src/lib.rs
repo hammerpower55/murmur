@@ -236,11 +236,13 @@ pub fn run() {
                 .spawn(engine::onnx::npu_available);
             let host = EngineHost::new();
             let fixer = Fixer::new();
+            let writer = Fixer::new();
             let models = ModelManager::new(
                 handle.clone(),
                 paths::models_dir(&handle)?,
                 host.clone(),
                 fixer.clone(),
+                writer.clone(),
             );
             models.load_at_startup();
             app.manage(models);
@@ -265,7 +267,7 @@ pub fn run() {
                 icons: paths::icons_dir(&handle)?,
                 clips: paths::clips_dir(&handle)?,
             };
-            let dictation = dictation::spawn(handle.clone(), host, fixer, db, dirs, shared, texts)?;
+            let dictation = dictation::spawn(handle.clone(), host, fixer, writer, db, dirs, shared, texts)?;
             app.manage(dictation);
 
             if let Err(err) = tray::setup(&handle, prefs.show_in_tray) {

@@ -129,6 +129,7 @@ pub fn spawn(
     app: AppHandle,
     engine: Arc<EngineHost>,
     fixer: Arc<Fixer>,
+    writer: Arc<Fixer>,
     db: Arc<Db>,
     dirs: Dirs,
     shared: settings::Shared,
@@ -182,6 +183,7 @@ pub fn spawn(
                 capture_started: None,
                 engine,
                 fixer,
+                writer,
                 around_cursor: None,
                 watching: Arc::new(AtomicBool::new(false)),
                 recent: None,
@@ -279,6 +281,9 @@ struct Controller {
     engine: Arc<EngineHost>,
     /// The fix-up model, used when it is downloaded and switched on.
     fixer: Arc<Fixer>,
+    /// The model that writes screenplays: the strongest on the CPU, because
+    /// the small NPU fixer loses the scene (it wrote one as a single line).
+    writer: Arc<Fixer>,
     /// The text before the cursor, being read while the user speaks.
     around_cursor: Option<Receiver<Option<Around>>>,
     /// Set to stop watching the last paste for corrections.
@@ -346,12 +351,23 @@ impl Controller {
                         HotkeyEvent::ToggleDown | HotkeyEvent::ScriptDown => Input::ToggleHotkey,
                         HotkeyEvent::Escape => Input::Escape,
                     };
-                    let effect = self.machine.handle(input, at);
-                    // Whichever hotkey starts a recording decides what it becomes.
-                    if effect == Effect::StartCapture {
-                        self.screenplay = event == HotkeyEvent::ScriptDown;
+                    // A hotkey containing the main one lands here just after
+                    // the main one started recording: it takes that recording.
+                    let takes_over = input == Input::ToggleHotkey && self.machine.go_hands_free();
+                    if takes_over {
+                        if event == HotkeyEvent::ScriptDown {
+                            self.screenplay = true;
+                            self.prepare_writer();
+                        }
+                        self.drive(Effect::None);
+                    } else {
+                        let effect = self.machine.handle(input, at);
+                        // Whichever hotkey starts a recording decides what it becomes.
+                        if effect == Effect::StartCapture {
+                            self.screenplay = event == HotkeyEvent::ScriptDown;
+                        }
+                        self.drive(effect);
                     }
-                    self.drive(effect);
                 }
                 None => {
                     self.event_at = Instant::now();
@@ -359,6 +375,7 @@ impl Controller {
                     self.drive(effect);
                     if idle.is_some_and(|t| t <= Instant::now()) {
                         self.fixer.park();
+                        self.writer.park();
                         if self.engine.park() {
                             let _ = self.app.emit("models-changed", ());
                         }
@@ -390,13 +407,17 @@ impl Controller {
                 self.watching.store(true, Ordering::SeqCst);
                 self.around_cursor = None;
                 let prefs = self.settings();
-                let fixing = prefs.fix_misheard_words && self.fixer.has_model();
-                if fixing {
-                    self.fixer.wake();
-                }
-                // Terminals are never read: a prompt is not prose to fit.
-                if (fixing || prefs.smart_formatting) && !focus::foreground().is_terminal() {
-                    self.around_cursor = Some(field::read_around_cursor());
+                if self.screenplay {
+                    self.prepare_writer();
+                } else {
+                    let fixing = prefs.fix_misheard_words && self.fixer.has_model();
+                    if fixing {
+                        self.fixer.wake();
+                    }
+                    // Terminals are never read: a prompt is not prose to fit.
+                    if (fixing || prefs.smart_formatting) && !focus::foreground().is_terminal() {
+                        self.around_cursor = Some(field::read_around_cursor());
+                    }
                 }
                 // Pill first so it shows well inside 100 ms, then the cue,
                 // then the microphone once the cue is under way.
@@ -461,6 +482,13 @@ impl Controller {
                 None
             }
         }
+    }
+
+    /// Starts loading the screenplay model while the user speaks, and frees
+    /// the word fixer so the two large models are not resident together.
+    fn prepare_writer(&self) {
+        self.fixer.park();
+        self.writer.wake();
     }
 
     fn start_capture(&mut self) -> Option<Input> {
@@ -613,11 +641,15 @@ impl Controller {
             &SnippetContext::now(String::new()),
         );
         let llm = self
-            .fixer
+            .writer
             .model(SCREENPLAY_LOAD_WAIT)
-            .context("no word fixer is downloaded to write the screenplay")?;
+            .context("no word fixer that runs on the CPU is downloaded to write the screenplay")?;
         let started = Instant::now();
-        let script = screenplay::write(&llm, self.fixer.thinking(), &spelled, |_| true)?;
+        let script = screenplay::write(&llm, self.writer.thinking(), &spelled, |_| true);
+        // Screenplays are rare and this model is large.
+        drop(llm);
+        self.writer.park();
+        let script = script?;
         log::info!(
             "screenplay of {} chars from {} words in {} ms",
             script.chars().count(),

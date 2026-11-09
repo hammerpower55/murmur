@@ -71,6 +71,8 @@ pub struct ModelManager {
     registry: Registry,
     host: Arc<EngineHost>,
     fixer: Arc<Fixer>,
+    /// Writes screenplays; never an NPU build (see dictation.rs).
+    writer: Arc<Fixer>,
     downloads: Mutex<HashMap<String, Download>>,
 }
 
@@ -92,14 +94,17 @@ impl ModelManager {
         models_dir: PathBuf,
         host: Arc<EngineHost>,
         fixer: Arc<Fixer>,
+        writer: Arc<Fixer>,
     ) -> Arc<Self> {
         let registry = Registry::new(models_dir);
         fixer.set_model(registry.fixup(settings::current(&app).use_npu));
+        writer.set_model(registry.fixup(false));
         Arc::new(Self {
             app,
             registry,
             host,
             fixer,
+            writer,
             downloads: Mutex::new(HashMap::new()),
         })
     }
@@ -146,6 +151,7 @@ impl ModelManager {
     pub fn refresh_fixer(&self) {
         self.fixer
             .set_model(self.registry.fixup(settings::current(&self.app).use_npu));
+        self.writer.set_model(self.registry.fixup(false));
     }
 
     /// Tells the page the models view changed.
@@ -332,6 +338,7 @@ impl ModelManager {
         }
         if catalog::find(id).is_some_and(|m| !m.family.is_speech()) {
             self.fixer.set_model(None);
+            self.writer.set_model(None);
         }
         let freed = self.registry.delete(id)?;
         self.refresh_fixer();

@@ -654,6 +654,19 @@ mod tests {
     }
 
     #[test]
+    fn a_hotkey_containing_the_main_one_fires_after_it() {
+        let shift_too = || Combo::new(vec![vec![VK_LCONTROL], vec![VK_LSHIFT], vec![VK_LWIN]]);
+        // Win last: both complete on the same key, the main one first.
+        let (mut hook, _, rx) = hook();
+        hook.control.set_combos(Hotkeys { main: Combo::ctrl_win(), toggle: None, script: Some(shift_too()) });
+        hook.on_key(VK_LCONTROL, true);
+        hook.on_key(VK_LSHIFT, true);
+        assert!(hook.on_key(VK_LWIN, true));
+        let events: Vec<_> = rx.try_iter().map(|(e, _)| e).collect();
+        assert_eq!(events, vec![HotkeyEvent::MainDown, HotkeyEvent::ScriptDown]);
+    }
+
+    #[test]
     fn new_combos_apply_on_the_next_key() {
         let (mut hook, _, rx) = hook();
         hook.control.set_combos(Hotkeys {

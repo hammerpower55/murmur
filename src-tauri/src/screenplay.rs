@@ -276,7 +276,10 @@ mod eval {
         let id = std::env::var("MURMUR_FIXUP_ID").unwrap_or_else(|_| "qwen3-4b-instruct-int4".into());
         let thinking = crate::models::catalog::catalog().into_iter().any(|m| m.id == id && m.thinking);
         let llm = Llm::load(&onnx::installed_model_dir(&id), default_threads()).unwrap();
-        for ramble in RAMBLES {
+        // MURMUR_RAMBLE tries one piece of speech instead of the samples.
+        let own = std::env::var("MURMUR_RAMBLE").ok();
+        let rambles: Vec<&str> = own.as_deref().map_or(RAMBLES.to_vec(), |r| vec![r]);
+        for ramble in rambles {
             let started = std::time::Instant::now();
             let mut tokens = 0;
             let script = write(&llm, thinking, ramble, |_| {

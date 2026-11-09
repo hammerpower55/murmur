@@ -179,6 +179,20 @@ impl Machine {
         }
     }
 
+    /// A hands free hotkey that contains the main one (Ctrl+Shift+Win over
+    /// Ctrl+Win) can only complete after or together with it, so the main
+    /// hotkey has just started a push to talk recording. That recording
+    /// becomes the hands free one instead of being stopped. False if there is
+    /// no such recording.
+    pub fn go_hands_free(&mut self) -> bool {
+        let held = self.state == State::Recording && self.mode != Mode::HandsFree;
+        if held {
+            self.mode = Mode::HandsFree;
+            self.deadline = None;
+        }
+        held
+    }
+
     fn start(&mut self, mode: Mode, now: Instant) {
         self.state = State::Recording;
         self.mode = mode;
@@ -209,6 +223,22 @@ mod tests {
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
+    }
+
+    #[test]
+    fn a_longer_hotkey_turns_push_to_talk_hands_free() {
+        let t0 = Instant::now();
+        let mut m = Machine::new();
+        assert_eq!(m.handle(Input::HotkeyDown, t0), Effect::StartCapture);
+        assert!(m.go_hands_free());
+        assert_eq!(m.mode(), Some(Mode::HandsFree));
+        // Letting go of the keys keeps recording; pressing them again stops.
+        assert_eq!(m.handle(Input::HotkeyUp, t0 + ms(800)), Effect::None);
+        assert_eq!(m.handle(Input::HotkeyDown, t0 + ms(9000)), Effect::StopCapture);
+        // Only a recording held by the main hotkey changes.
+        assert!(!m.go_hands_free());
+        let mut idle = Machine::new();
+        assert!(!idle.go_hands_free());
     }
 
     fn recording(mode: Mode) -> (Machine, Instant) {
