@@ -1,25 +1,42 @@
 import { useEffect, useState } from "react";
+import { Bars } from "../components/Bars";
 import { CountUp } from "../components/CountUp";
+import { linkClass } from "../components/controls";
 import { Empty } from "../components/Empty";
+import { Hang, Title } from "../components/Page";
 import { TranscriptItem } from "../components/TranscriptItem";
 import { api, events, type HomeSummary } from "../lib/api";
-import { plural } from "../lib/format";
+import { dateline, plural, posterNumber, shortDate } from "../lib/format";
+import { subscribeInsights, useInsights } from "../store/insights";
 import { useHotkeyText } from "../store/settings";
 
-function Stat({ label, value, format }: { label: string; value: number; format: (n: number) => string }) {
+const STREAK_TICKS = 14;
+
+/** The streak as a run of filled squares. */
+function Streak({ days }: { days: number }) {
   return (
-    <div className="surface rounded-xl px-5 py-4">
-      <p className="stat-label">{label}</p>
-      <p className="stat-value mt-2">
-        <CountUp value={value} format={format} />
-      </p>
-    </div>
+    <span className="flex items-center gap-3">
+      <span className="flex gap-0.5" aria-hidden>
+        {Array.from({ length: STREAK_TICKS }, (_, i) => (
+          <span
+            key={i}
+            className={`h-2.5 w-2.5 origin-bottom ${i < days ? "bg-ink" : "bg-rule"}`}
+            style={{ animation: `grow-up 420ms var(--ease-out-expo) ${320 + i * 24}ms both` }}
+          />
+        ))}
+      </span>
+      <span className="font-bold">
+        <CountUp value={days} format={(n) => plural(n, "day", "days")} />
+      </span>
+    </span>
   );
 }
 
 export function Home({ onSeeHistory }: { onSeeHistory: () => void }) {
   const [summary, setSummary] = useState<HomeSummary | null>(null);
   const hotkey = useHotkeyText();
+  const perDay = useInsights((s) => s.data?.wordsPerDay);
+  useEffect(subscribeInsights, []);
 
   useEffect(() => {
     const load = () => void api.homeSummary().then(setSummary);
@@ -32,28 +49,56 @@ export function Home({ onSeeHistory }: { onSeeHistory: () => void }) {
 
   return (
     <section className="stagger page">
-      <h1 className="page-title">Home</h1>
+      <Title
+        hero
+        tone="amber"
+        seed={3}
+        aside={<p className="font-medium">{dateline()}</p>}
+        below={
+          <div className="mt-8 animate-rise">
+            <p className="figure">
+              <CountUp value={summary.wordsThisWeek} format={posterNumber} />
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-1">
+              <span className="font-bold">Words this week</span>
+              <Streak days={summary.streakDays} />
+            </div>
+          </div>
+        }
+        foot={
+          perDay && (
+            <Bars
+              className="h-14"
+              values={perDay.map((d) => d.words)}
+              hot={perDay.length - 1}
+              titles={perDay.map((d) => `${shortDate(d.date)}, ${plural(d.words, "word", "words")}`)}
+            />
+          )
+        }
+      >
+        Home
+      </Title>
 
-      <div className="stagger mt-8 grid grid-cols-2 gap-4">
-        <Stat label="Words this week" value={summary.wordsThisWeek} format={(n) => n.toLocaleString("en-US")} />
-        <Stat label="Streak" value={summary.streakDays} format={(n) => plural(n, "day", "days")} />
-      </div>
-
-      <div className="mt-12 flex items-baseline justify-between">
-        <h2 className="section-title">Recent</h2>
-        {summary.recent.length > 0 && (
-          <button onClick={onSeeHistory} className="text-xs text-zinc-400 hover:text-zinc-200">
-            See all
-          </button>
-        )}
-      </div>
-      <div className="stagger mt-4 flex flex-col gap-3">
+      <Hang
+        label="Recent"
+        note={
+          summary.recent.length > 0 && (
+            <button onClick={onSeeHistory} className={`${linkClass} text-ink-2`}>
+              See all
+            </button>
+          )
+        }
+      >
         {summary.recent.length === 0 ? (
-          <Empty>Hold {hotkey}, speak, then let go.</Empty>
+          <Empty>{`Hold ${hotkey}, speak, then let go.`}</Empty>
         ) : (
-          summary.recent.map((r) => <TranscriptItem key={r.id} row={r} />)
+          <div className="stagger rows">
+            {summary.recent.map((r, i) => (
+              <TranscriptItem key={r.id} row={r} lead={i === 0} />
+            ))}
+          </div>
         )}
-      </div>
+      </Hang>
     </section>
   );
 }

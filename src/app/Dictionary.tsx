@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { events, type DictEntry } from "../lib/api";
-import { buttonClass, Tabs } from "../components/controls";
+import { linkClass, Tabs } from "../components/controls";
 import { CsvButtons } from "../components/CsvButtons";
+import { Title } from "../components/Page";
 import { PairList, type Pair } from "../components/PairList";
 import { useText } from "../store/text";
 
@@ -39,9 +40,24 @@ export function Dictionary() {
 
   return (
     <section className="stagger page">
-      <h1 className="page-title">Dictionary</h1>
+      <Title
+        tone="invert"
+        seed={7}
+        aside={
+          data.dictionary.length > 0 && (
+            <p className="max-w-[16rem] text-right text-ink-2">
+              <span className="line-through">{data.dictionary[data.dictionary.length - 1].spoken}</span>
+              <span className="statement block font-extrabold text-ink">
+                {data.dictionary[data.dictionary.length - 1].written}
+              </span>
+            </p>
+          )
+        }
+      >
+        Dictionary
+      </Title>
 
-      <div className="mt-6 flex items-center gap-1">
+      <div className="flex items-center justify-between gap-6 pb-4">
         <Tabs
           tabs={[
             ["dictionary", "Words"],
@@ -53,16 +69,16 @@ export function Dictionary() {
             setTab(t);
           }}
         />
-        <div key={tab} className="ml-auto animate-pop">
+        <div key={tab} className="animate-pop">
           {tab === "dictionary" ? (
             <CsvButtons kind="dictionary" onImported={() => void load()} />
           ) : confirmReset ? (
-            <span className="flex gap-2">
-              <button className={buttonClass} onClick={() => setConfirmReset(false)}>
+            <span className="flex gap-4">
+              <button className={linkClass} onClick={() => setConfirmReset(false)}>
                 Cancel
               </button>
               <button
-                className={buttonClass}
+                className={`${linkClass} font-semibold`}
                 onClick={() => {
                   setConfirmReset(false);
                   void resetRomanUrdu();
@@ -72,14 +88,14 @@ export function Dictionary() {
               </button>
             </span>
           ) : (
-            <button className={buttonClass} onClick={() => setConfirmReset(true)}>
+            <button className={linkClass} onClick={() => setConfirmReset(true)}>
               Restore defaults
             </button>
           )}
         </div>
       </div>
 
-      <div key={tab} className="mt-4 animate-page">
+      <div key={tab} className="animate-rise">
         {tab === "dictionary" ? (
           <PairList
             pairs={data.dictionary.map((e): Pair => [e.spoken, e.written])}

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { buttonClass, linkClass, primaryClass } from "../components/controls";
+import { Mark } from "../components/Mark";
 import { ModelCard } from "../components/ModelCard";
+import { Hang, Title } from "../components/Page";
 import { api, errorText } from "../lib/api";
 import { APP_NAME } from "../lib/app";
-import { Wave } from "../components/Wave";
 import { useDictation } from "../store/dictation";
 import { useModels } from "../store/models";
 import { useHotkeyText } from "../store/settings";
@@ -12,6 +14,15 @@ type Mic = { state: "checking" } | { state: "ok" } | { state: "blocked"; message
 interface Props {
   onDone: () => void;
   onSeeAllModels: () => void;
+}
+
+function Step({ n, children }: { n: number; children: string }) {
+  return (
+    <>
+      <span className="numeral block">{n}</span>
+      <span className="mt-1 block">{children}</span>
+    </>
+  );
 }
 
 export function Onboarding({ onDone, onSeeAllModels }: Props) {
@@ -35,71 +46,70 @@ export function Onboarding({ onDone, onSeeAllModels }: Props) {
   const anyActive = view.active !== null;
 
   return (
-    <section className="stagger mx-auto flex max-w-xl flex-col gap-10 px-10 py-16">
-      <div className="flex flex-col items-start gap-6">
-        <Wave activity={activity === "idle" ? "recording" : activity} size="lg" />
-        <h1 className="page-title">Welcome to {APP_NAME}</h1>
-      </div>
+    <section className="stagger page">
+      <Title
+        hero
+        tone="amber"
+        seed={21}
+        below={<Mark activity={activity} className="mb-8 h-16 w-auto self-start text-ink" />}
+      >
+        Welcome to
+        <br />
+        {APP_NAME}
+      </Title>
 
-      <div>
-        <h2 className="section-title">Microphone</h2>
-        {mic.state === "checking" && <p className="mt-2 animate-breathe text-sm text-zinc-500">Checking the microphone</p>}
-        {mic.state === "ok" && <p className="mt-2 animate-pop text-sm text-zinc-300">Microphone ready</p>}
-        {mic.state === "blocked" && (
-          <div className="mt-2 flex flex-col items-start gap-3">
-            <p className="text-sm text-amber-200">{mic.message}</p>
-            <div className="flex gap-2">
-              <button
-                className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white"
-                onClick={() => void api.openMicrophoneSettings()}
-              >
-                Open microphone settings
-              </button>
-              <button
-                className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5"
-                onClick={checkMic}
-              >
-                Check again
-              </button>
+      <Hang label={<Step n={1}>Microphone</Step>}>
+        <div className="py-3">
+          {mic.state === "checking" && <p className="animate-breathe text-ink-2">Checking the microphone</p>}
+          {mic.state === "ok" && <p className="animate-pop">Microphone ready</p>}
+          {mic.state === "blocked" && (
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-danger">{mic.message}</p>
+              <div className="flex items-center gap-4">
+                <button className={primaryClass} onClick={() => void api.openMicrophoneSettings()}>
+                  Open microphone settings
+                </button>
+                <button className={buttonClass} onClick={checkMic}>
+                  Check again
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h2 className="section-title">Speech model</h2>
-        <div className="mt-3">
-          {model && (
-            <ModelCard
-              compact
-              model={model}
-              active={view.active === model.id}
-              loading={view.loading === model.id}
-              progress={view.downloads[model.id]}
-              error={errors[model.id]}
-              onDownload={() => void download(model.id)}
-              onCancel={() => void cancel(model.id)}
-              onUse={() => void use(model.id)}
-              onDelete={() => {}}
-              device={view.device}
-            />
           )}
         </div>
-        <button className="mt-3 text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline" onClick={onSeeAllModels}>
-          See all models
-        </button>
-      </div>
+      </Hang>
 
-      {(ready || anyActive) && (
-        <div className="flex animate-rise flex-col items-start gap-3">
-          <p className="text-sm text-zinc-300">Hold {hotkey}, speak, then let go.</p>
-          <button
-            className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
-            onClick={onDone}
-          >
-            Start dictating
+      <Hang label={<Step n={2}>Speech model</Step>} className="mt-8">
+        {model && (
+          <ModelCard
+            compact
+            model={model}
+            active={view.active === model.id}
+            loading={view.loading === model.id}
+            progress={view.downloads[model.id]}
+            error={errors[model.id]}
+            onDownload={() => void download(model.id)}
+            onCancel={() => void cancel(model.id)}
+            onUse={() => void use(model.id)}
+            onDelete={() => {}}
+            device={view.device}
+          />
+        )}
+        <div className="border-t border-rule py-3">
+          <button className={`${linkClass} text-ink-2`} onClick={onSeeAllModels}>
+            See all models
           </button>
         </div>
+      </Hang>
+
+      {(ready || anyActive) && (
+        <Hang label={<Step n={3}>Start</Step>} className="mt-8 animate-rise">
+          <div className="flex flex-col items-start gap-4 py-3">
+            <p className="statement max-w-[28ch]">Hold {hotkey}, speak, then let go.</p>
+            <button className={primaryClass} onClick={onDone}>
+              Start dictating
+            </button>
+          </div>
+        </Hang>
       )}
     </section>
   );

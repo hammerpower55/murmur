@@ -12,10 +12,6 @@ type Phase = "hidden" | "recording" | "processing" | "done" | "cancelled" | "err
 const IDLE_ENTER = 0.03;
 const IDLE_EXIT = 0.06;
 const LEAVE_MS = 140;
-/** Hue drift across the wave, degrees: deeper amber on the left to gold on
- * the right, kept on the warm side so the right end never turns green. */
-const HUE_FROM = -20;
-const HUE_TO = 2;
 /** Each dot of the Transcribing row starts this much after its neighbour. */
 const THINK_STEP_MS = 55;
 
@@ -27,7 +23,6 @@ function makeBars(parent: HTMLElement, each?: (bar: HTMLDivElement, i: number) =
   return Array.from({ length: BAR_COUNT }, (_, i) => {
     const bar = document.createElement("div");
     bar.className = "bar";
-    bar.style.setProperty("--shift", String(HUE_FROM + ((HUE_TO - HUE_FROM) * i) / (BAR_COUNT - 1)));
     each?.(bar, i);
     parent.appendChild(bar);
     return bar;

@@ -211,6 +211,9 @@ pub fn set_settings(
         *s = next.clone();
     }
     dictation.apply(&next);
+    if next.theme != previous.theme {
+        settings::apply_theme(&app, next.theme);
+    }
     if next.show_in_tray != previous.show_in_tray {
         tray::set_visible(&app, next.show_in_tray);
     }

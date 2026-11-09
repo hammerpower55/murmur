@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api, errorText, type ListKind } from "../lib/api";
 import { plural } from "../lib/format";
-import { buttonClass } from "./controls";
+import { linkClass } from "./controls";
 
 /** Import and export buttons for a list, with one line of outcome. */
 export function CsvButtons({ kind, onImported }: { kind: ListKind; onImported: () => void }) {
@@ -15,10 +15,10 @@ export function CsvButtons({ kind, onImported }: { kind: ListKind; onImported: (
     }
   };
   return (
-    <div className="flex items-center gap-2">
-      {status && <span className="text-sm text-zinc-400">{status}</span>}
+    <div className="flex items-center gap-4">
+      {status && <span className="text-ink-2">{status}</span>}
       <button
-        className={buttonClass}
+        className={linkClass}
         onClick={() =>
           void run(async () => {
             const count = await api.importCsv(kind);
@@ -31,7 +31,7 @@ export function CsvButtons({ kind, onImported }: { kind: ListKind; onImported: (
         Import CSV
       </button>
       <button
-        className={buttonClass}
+        className={linkClass}
         onClick={() => void run(async () => ((await api.exportCsv(kind)) ? "Exported" : null))}
       >
         Export CSV

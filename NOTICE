@@ -24,8 +24,8 @@ enigo and realfft, MIT License.
 tokenizers (Hugging Face), Apache 2.0.
 rusqlite, MIT License, with SQLite, public domain.
 React, recharts, zustand and Tailwind CSS, MIT License.
-Onest (The Onest Project Authors) and Young Serif (The Young Serif Project Authors),
-  SIL Open Font License 1.1, bundled in src/assets/fonts with their licences.
+Hanken Grotesk (The Hanken Grotesk Project Authors),
+  SIL Open Font License 1.1, bundled in src/assets/fonts with its licence.
 
 Speech models and the word fixer are downloaded by the user and are not distributed with Murmur.
 Each is subject to its own licence:

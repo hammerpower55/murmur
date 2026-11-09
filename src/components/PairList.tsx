@@ -1,9 +1,11 @@
 // An editable list of two field entries (spoken and written, trigger and
 // text, spelling and variants), shared by the Dictionary and Snippets pages.
-// The whole list is saved on every change; Rust validates it.
+// The whole list is saved on every change; Rust validates it. It is set as a
+// table whose second column starts on the page's axis.
 
-import { useMemo, useState } from "react";
-import { buttonClass, inputClass, primaryClass } from "./controls";
+import { useId, useMemo, useState } from "react";
+import { inputClass, linkClass, primaryClass } from "./controls";
+import { Empty } from "./Empty";
 
 export type Pair = [string, string];
 
@@ -26,6 +28,8 @@ interface Props {
   tags?: (string | undefined)[];
 }
 
+const ROW = "grid grid-cols-12 gap-x-4";
+
 function Editor({
   initial,
   fields,
@@ -40,6 +44,8 @@ function Editor({
   const [a, setA] = useState(initial[0]);
   const [b, setB] = useState(initial[1]);
   const [busy, setBusy] = useState(false);
+  const id = useId();
+  const ids = [`${id}-a`, `${id}-b`];
   const submit = async () => {
     setBusy(true);
     const ok = await onSave([a, b]);
@@ -51,39 +57,45 @@ function Editor({
     if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement)) void submit();
   };
   return (
-    <div className="flex animate-pop flex-col gap-3 px-5 py-4" onKeyDown={onKey}>
+    <div className={`${ROW} animate-pop gap-y-3 py-3`} onKeyDown={onKey}>
+      <label htmlFor={ids[0]} className="col-span-3 py-1 font-medium">
+        {fields[0].label}
+      </label>
       <input
+        id={ids[0]}
         autoFocus
-        aria-label={fields[0].label}
         placeholder={fields[0].placeholder}
         value={a}
         onChange={(e) => setA(e.target.value)}
-        className={inputClass}
+        className={`${inputClass} col-span-9`}
       />
+      <label htmlFor={ids[1]} className="col-span-3 py-1 font-medium">
+        {fields[1].label}
+      </label>
       {fields[1].multiline ? (
         <textarea
-          aria-label={fields[1].label}
+          id={ids[1]}
           placeholder={fields[1].placeholder}
           value={b}
           rows={3}
           onChange={(e) => setB(e.target.value)}
-          className={`${inputClass} resize-y`}
+          className={`${inputClass} col-span-9 resize-y`}
         />
       ) : (
         <input
-          aria-label={fields[1].label}
+          id={ids[1]}
           placeholder={fields[1].placeholder}
           value={b}
           onChange={(e) => setB(e.target.value)}
-          className={inputClass}
+          className={`${inputClass} col-span-9`}
         />
       )}
-      <div className="flex justify-end gap-2">
-        <button className={buttonClass} onClick={onCancel}>
-          Cancel
-        </button>
+      <div className="col-span-9 col-start-4 flex items-center gap-4">
         <button className={primaryClass} disabled={busy || !a.trim() || !b.trim()} onClick={() => void submit()}>
           Save
+        </button>
+        <button className={linkClass} onClick={onCancel}>
+          Cancel
         </button>
       </div>
     </div>
@@ -119,42 +131,55 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
 
   return (
     <div>
-      <div className="flex gap-3">
-        {pairs.length >= searchFrom && (
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            className={`${inputClass} flex-1`}
-          />
-        )}
-        <button
-          className={`${primaryClass} ml-auto`}
-          disabled={editing !== null}
-          onClick={() => {
-            setError(null);
-            setEditing(-1);
-          }}
-        >
-          {addLabel}
-        </button>
+      <div className={`${ROW} items-end border-t border-ink py-2`}>
+        <span className="col-span-3 font-bold">{fields[0].label}</span>
+        <span className="col-span-9 flex items-end justify-between gap-6">
+          <span className="font-bold">{fields[1].label}</span>
+          <span className="flex items-end gap-4">
+            {pairs.length >= searchFrom && (
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search"
+                aria-label="Search"
+                className={`${inputClass} w-40`}
+              />
+            )}
+            <button
+              className={primaryClass}
+              disabled={editing !== null}
+              onClick={() => {
+                setError(null);
+                setEditing(-1);
+              }}
+            >
+              {addLabel}
+            </button>
+          </span>
+        </span>
       </div>
 
       {error && (
-        <p key={error} className="mt-3 animate-shake text-sm text-red-300">
+        <p key={error} className="animate-shake border-t border-rule py-2 text-danger">
           {error}
         </p>
       )}
 
-      <div className="mt-3 divide-y divide-white/6 surface rounded-xl">
+      <div className="rows border-t border-rule">
         {editing === -1 && (
           <Editor initial={["", ""]} fields={fields} onSave={(p) => put(-1, p)} onCancel={() => setEditing(null)} />
         )}
         {pairs.length === 0 && editing !== -1 && (
-          <p className="animate-pop px-4 py-10 text-center text-sm text-zinc-500">{empty}</p>
+          <div className={ROW}>
+            <div className="col-span-9 col-start-4">
+              <Empty>{empty}</Empty>
+            </div>
+          </div>
         )}
         {pairs.length > 0 && shown.length === 0 && (
-          <p className="px-4 py-10 text-center text-sm text-zinc-500">Clear the search to see every entry.</p>
+          <div className={`${ROW} py-3`}>
+            <p className="col-span-9 col-start-4 text-ink-2">Clear the search to see every entry.</p>
+          </div>
         )}
         {shown.map(({ p, i }) =>
           editing === i ? (
@@ -163,34 +188,29 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
             <div
               // Keyed by content so deleting one row does not replay the rest.
               key={`${p[0]}\u0000${p[1]}`}
-              className="group flex animate-rise items-start gap-6 px-5 py-3 transition-colors duration-200 hover:bg-white/[0.025]"
-              style={{ animationDelay: `${Math.min(i, 10) * 25}ms` }}
+              className={`${ROW} group animate-rise items-start py-2.5`}
+              style={{ animationDelay: `${Math.min(i, 10) * 20}ms` }}
             >
-              <span className="w-2/5 shrink-0 truncate text-sm text-zinc-100" title={p[0]}>
+              <span className="col-span-3 truncate font-medium" title={p[0]}>
                 {p[0]}
               </span>
-              <span className="line-clamp-2 min-w-0 flex-1 text-sm whitespace-pre-wrap text-zinc-400">{p[1]}</span>
-              {tags?.[i] && (
-                <span className="shrink-0 rounded-full border border-accent/25 px-2 py-0.5 text-[11px] text-accent">
-                  {tags[i]}
+              <span className="col-span-9 flex items-start gap-4">
+                <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap text-ink-2">{p[1]}</span>
+                {tags?.[i] && <span className="shrink-0 bg-accent px-1.5 text-caption font-semibold text-accent-ink">{tags[i]}</span>}
+                <span className="flex shrink-0 gap-3 text-caption text-ink-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <button
+                    className={linkClass}
+                    onClick={() => {
+                      setError(null);
+                      setEditing(i);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button className={linkClass} onClick={() => void commit(pairs.filter((_, j) => j !== i))}>
+                    Delete
+                  </button>
                 </span>
-              )}
-              <span className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                <button
-                  className="rounded px-2 py-0.5 text-xs text-zinc-300 hover:bg-white/8"
-                  onClick={() => {
-                    setError(null);
-                    setEditing(i);
-                  }}
-                >
-                  Edit
-                </button>
-                <button
-                  className="rounded px-2 py-0.5 text-xs text-zinc-300 hover:bg-white/8"
-                  onClick={() => void commit(pairs.filter((_, j) => j !== i))}
-                >
-                  Delete
-                </button>
               </span>
             </div>
           ),

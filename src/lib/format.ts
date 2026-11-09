@@ -11,6 +11,12 @@ export function formatRam(mb: number): string {
   return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB RAM` : `${mb} MB RAM`;
 }
 
+/** 12,480 for poster sizes, with a hair space after the comma: the font sets a
+ * comma tight against a 4, and at this size they touch. */
+export function posterNumber(n: number): string {
+  return n.toLocaleString("en-US").replace(/,/g, ", ");
+}
+
 export function percent(done: number, total: number): number {
   if (total <= 0) return 0;
   return Math.min(100, Math.floor((done / total) * 100));
@@ -37,16 +43,64 @@ export function supportsLanguage(languages: string[], code: string): boolean {
   return code === "" || languages.includes("*") || languages.includes(code);
 }
 
+/** "2:45 PM". */
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function daysAgo(when: Date, now: Date): number {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((day(now) - day(when)) / 86_400_000);
+}
+
 /** "2:45 PM" today, "Yesterday, 2:45 PM", else "28 Oct, 2:45 PM". */
 export function formatWhen(iso: string, now: Date = new Date()): string {
   const when = new Date(iso);
-  const time = when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diffDays = Math.round((day(now) - day(when)) / 86_400_000);
+  const time = formatTime(iso);
+  const diffDays = daysAgo(when, now);
   if (diffDays === 0) return time;
   if (diffDays === 1) return `Yesterday, ${time}`;
   const date = when.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   return `${date}, ${time}`;
+}
+
+/** "Today", "Yesterday", "28 Oct", or "28 Oct 2025" from another year. */
+export function dayLabel(iso: string, now: Date = new Date()): string {
+  const when = new Date(iso);
+  const diffDays = daysAgo(when, now);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return when.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    ...(when.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
+/** "9" for the big numeral beside a day's dictations. */
+export function dayOfMonth(iso: string): number {
+  return new Date(iso).getDate();
+}
+
+/** Rows, newest first, under one heading per day. */
+export function groupByDay<T extends { createdAt: string }>(
+  rows: T[],
+  now: Date = new Date(),
+): { label: string; rows: T[] }[] {
+  const groups: { label: string; rows: T[] }[] = [];
+  for (const row of rows) {
+    const label = dayLabel(row.createdAt, now);
+    const last = groups[groups.length - 1];
+    if (last?.label === label) last.rows.push(row);
+    else groups.push({ label, rows: [row] });
+  }
+  return groups;
+}
+
+/** "Monday 9 November". */
+export function dateline(now: Date = new Date()): string {
+  const weekday = now.toLocaleDateString("en-GB", { weekday: "long" });
+  return `${weekday} ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`;
 }
 
 /** "4.2 s", or "1 min 5 s" from a minute up. */

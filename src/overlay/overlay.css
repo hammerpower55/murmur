@@ -1,13 +1,15 @@
 /* Same interface font as the main window, bundled for offline use. */
 @font-face {
-  font-family: "Onest";
-  src: url("../assets/fonts/Onest-Variable.ttf") format("truetype");
+  font-family: "Hanken Grotesk";
+  src: url("../assets/fonts/HankenGrotesk-Variable.ttf") format("truetype");
   font-weight: 100 900;
   font-display: block;
 }
 
-/* The floating pill (spec 6.4). Dark only. Transforms and opacity only, so
-   animation never triggers layout. Sizes match `overlay/window.rs`. */
+/* The floating label. Dark whatever the window's theme, because it sits over
+   other apps. A flat ink rectangle with flat bars, in the main window's
+   language. Transforms and opacity only, so animation never triggers layout.
+   Sizes match `overlay/window.rs`. */
 
 :root {
   /* Setting "Wave colour"; the default is the app's amber. */
@@ -17,7 +19,7 @@
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-quart: cubic-bezier(0.5, 0, 0.75, 0);
-  /* Compact capsule for every phase but the error line. */
+  /* Compact size for every phase but the error line. */
   --h: 32px;
   --compact: 112px;
   --wide: 176px;
@@ -37,7 +39,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "Onest", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: "Hanken Grotesk", "Helvetica Neue", Arial, system-ui, sans-serif;
 }
 
 .pill {
@@ -67,14 +69,14 @@ body {
     transform 140ms var(--ease-in-quart);
 }
 
-/* The capsule is two round caps and a middle that slide and stretch
-   between the compact and the wide size, so its width changes through
-   transforms alone. All three share one opaque fill so they read as one
-   shape; the shadow and hairline edge come from a filter over the group. */
+/* The rectangle is two ends and a middle that slide and stretch between the
+   compact and the wide size, so its width changes through transforms alone.
+   All three share one flat fill so they read as one shape; a hairline edge
+   and a small shadow keep it apart from whatever is behind it. */
 .shell {
   position: absolute;
   inset: 0;
-  filter: drop-shadow(0 0 0.6px oklch(1 0.01 80 / 0.28)) drop-shadow(0 5px 9px oklch(0 0 0 / 0.42));
+  filter: drop-shadow(0 0 0.5px oklch(1 0.01 80 / 0.35)) drop-shadow(0 2px 4px oklch(0 0 0 / 0.35));
 }
 
 .cap,
@@ -82,13 +84,12 @@ body {
   position: absolute;
   top: 0;
   height: var(--h);
-  background: linear-gradient(180deg, oklch(0.245 0.009 72), oklch(0.185 0.007 70));
+  background: oklch(0.17 0.008 70);
   transition: transform 260ms var(--ease-out-quint);
 }
 
 .cap {
   width: var(--h);
-  border-radius: 50%;
 }
 
 .cap.start {
@@ -139,20 +140,11 @@ body {
 }
 
 /* Each bar is 18 px tall and scaled down, so a level change is a
-   transform, never a layout. The fill runs light at the top to deep at
-   the bottom, and its hue drifts from a deeper amber on the left to gold
-   on the right (`--shift`, set per bar). */
+   transform, never a layout. */
 .bar {
-  --shift: 0;
   width: 3px;
   height: 18px;
-  border-radius: 2px;
-  background: linear-gradient(
-    180deg,
-    oklch(from var(--wave) calc(l + 0.09) calc(c * 0.8) calc(h + 6 + var(--shift))),
-    oklch(from var(--wave) l c calc(h + var(--shift))) 55%,
-    oklch(from var(--wave) calc(l - 0.12) calc(c * 1.1) calc(h - 18 + var(--shift)))
-  );
+  background: var(--wave);
   transform: scaleY(0.1667);
   will-change: transform, opacity;
 }
@@ -181,9 +173,9 @@ body {
   width: 16px;
   height: 16px;
   fill: none;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-width: 2;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
 }
 
 .tick {
