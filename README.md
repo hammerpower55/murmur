@@ -42,9 +42,20 @@ The installer and uninstaller themselves are small 32 bit x86 programs, because 
 
 ### macOS
 
-- `Murmur_<version>_aarch64.dmg`: open it and drag Murmur to Applications.
+Download `Murmur_<version>_aarch64.dmg` from the latest release, open it and drag Murmur to Applications.
 
-The app is not notarised yet, so the first time, right click Murmur in Applications and choose Open. macOS then asks for two permissions: the microphone, and Accessibility (System Settings > Privacy & Security > Accessibility), which the hotkey, pasting and reading the text field need. The default hotkey is Control + Command. On a Mac, Whisper runs on the GPU through Metal; the NPU models are Windows only. Data lives in `~/Library/Application Support/Murmur` instead of `%APPDATA%\Murmur`.
+Murmur is not notarised, because that needs a paid Apple Developer account, so macOS blocks it the first time:
+
+1. Open Murmur from Applications. macOS says it cannot verify the app. Click Done.
+2. Open System Settings > Privacy & Security and scroll to the bottom. Under Security, click Open Anyway next to Murmur, then confirm with your password.
+
+The Open Anyway button only shows for about an hour after a blocked attempt, and only after opening the app from Applications, not from inside the disk image. If it does not show, paste this in Terminal instead. It downloads the latest release, puts Murmur in Applications and opens it with no warning, because a file fetched with `curl` is not flagged as downloaded from the internet. `scripts/install_mac.sh` is short and only downloads the release disk image and copies the app.
+
+```
+curl -fsSL https://raw.githubusercontent.com/hammerpower55/murmur/main/scripts/install_mac.sh | bash
+```
+
+macOS then asks for two permissions: the microphone, and Accessibility (System Settings > Privacy & Security > Accessibility), which the hotkey, pasting and reading the text field need. The default hotkey is Control + Command. On a Mac, Whisper runs on the GPU through Metal; the NPU models are Windows only. Data lives in `~/Library/Application Support/Murmur` instead of `%APPDATA%\Murmur`.
 
 ## Models
 
