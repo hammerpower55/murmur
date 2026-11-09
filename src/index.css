@@ -1,8 +1,7 @@
 @import "tailwindcss";
 
-/* Design context: .impeccable.md. Swiss poster: one family, one axis, one
-   motif. Square corners and flat colour fields; the only round shapes are
-   Murmur's full stop and the sound rings it gives off. */
+/* Design context: .impeccable.md. Bold and rounded: one family, one axis, big
+   soft panels and pill controls. */
 
 /* Bundled so the app stays offline. SIL Open Font License, see
    src/assets/fonts/HankenGrotesk-OFL.txt. */
@@ -21,27 +20,30 @@
 :root {
   color-scheme: light dark;
   --paper: oklch(0.975 0.006 85);
+  --surface: oklch(0.94 0.008 85);
+  --surface-2: oklch(0.895 0.01 85);
   --ink: oklch(0.17 0.008 70);
   --ink-2: oklch(0.4 0.008 70);
   --ink-3: oklch(0.52 0.008 70);
-  --rule: oklch(0.17 0.008 70 / 0.16);
+  --rule: oklch(0.17 0.008 70 / 0.12);
   --accent: oklch(0.8 0.165 78);
   --accent-ink: oklch(0.2 0.03 70);
   /* Amber as words: dark enough to read on paper. */
   --accent-text: oklch(0.5 0.11 68);
   --danger: oklch(0.5 0.19 28);
   --focus: oklch(0.17 0.008 70);
-  /* Switches: a black bar with the amber full stop in it. */
   --switch-on: oklch(0.17 0.008 70);
   --switch-dot: oklch(0.8 0.165 78);
 }
 
 .tone-invert {
   --paper: oklch(0.165 0.006 70);
+  --surface: oklch(0.225 0.007 70);
+  --surface-2: oklch(0.285 0.008 70);
   --ink: oklch(0.94 0.006 85);
   --ink-2: oklch(0.74 0.008 80);
   --ink-3: oklch(0.62 0.008 78);
-  --rule: oklch(0.94 0.006 85 / 0.16);
+  --rule: oklch(0.94 0.006 85 / 0.12);
   --accent: oklch(0.82 0.155 80);
   --accent-ink: oklch(0.2 0.03 70);
   --accent-text: oklch(0.84 0.14 82);
@@ -54,10 +56,12 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: oklch(0.165 0.006 70);
+    --surface: oklch(0.225 0.007 70);
+    --surface-2: oklch(0.285 0.008 70);
     --ink: oklch(0.94 0.006 85);
     --ink-2: oklch(0.74 0.008 80);
     --ink-3: oklch(0.62 0.008 78);
-    --rule: oklch(0.94 0.006 85 / 0.16);
+    --rule: oklch(0.94 0.006 85 / 0.12);
     --accent: oklch(0.82 0.155 80);
     --accent-ink: oklch(0.2 0.03 70);
     --accent-text: oklch(0.84 0.14 82);
@@ -69,10 +73,12 @@
 
   .tone-invert {
     --paper: oklch(0.975 0.006 85);
+    --surface: oklch(0.94 0.008 85);
+    --surface-2: oklch(0.895 0.01 85);
     --ink: oklch(0.17 0.008 70);
     --ink-2: oklch(0.4 0.008 70);
     --ink-3: oklch(0.52 0.008 70);
-    --rule: oklch(0.17 0.008 70 / 0.16);
+    --rule: oklch(0.17 0.008 70 / 0.12);
     --accent: oklch(0.8 0.165 78);
     --accent-ink: oklch(0.2 0.03 70);
     --accent-text: oklch(0.5 0.11 68);
@@ -86,10 +92,12 @@
 /* The full amber field. Its "accent" is ink, so the full stop stays visible. */
 .tone-amber {
   --paper: oklch(0.81 0.165 78);
+  --surface: oklch(0.76 0.16 76);
+  --surface-2: oklch(0.71 0.15 74);
   --ink: oklch(0.17 0.02 70);
   --ink-2: oklch(0.26 0.03 70);
   --ink-3: oklch(0.32 0.04 70);
-  --rule: oklch(0.17 0.02 70 / 0.25);
+  --rule: oklch(0.17 0.02 70 / 0.22);
   --accent: oklch(0.17 0.02 70);
   --accent-ink: oklch(0.81 0.165 78);
   --accent-text: oklch(0.17 0.02 70);
@@ -107,6 +115,8 @@
 
 @theme inline {
   --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
@@ -119,6 +129,10 @@
 
 @theme {
   --font-sans: "Hanken Grotesk", "Helvetica Neue", Arial, system-ui, sans-serif;
+
+  /* Corners: big panels, smaller things inside them, pills for what you press. */
+  --radius-panel: 1.75rem;
+  --radius-inner: 0.75rem;
 
   /* Type scale: few sizes, far apart. */
   --text-caption: 0.75rem; /* 12: meta, column heads */
@@ -156,7 +170,7 @@
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(8px);
   }
 }
 
@@ -224,43 +238,9 @@
   }
 }
 
-/* The full stop lands last. */
-@keyframes stop-land {
-  from {
-    transform: scale(0);
-  }
-}
-
-/* Rings swing into place around the disc, one after another. */
-@keyframes ring-in {
-  from {
-    opacity: 0;
-    transform: rotate(calc(var(--start) - 110deg));
-  }
-}
-
-@keyframes core-in {
-  from {
-    transform: scale(0);
-  }
-}
-
-@keyframes ring-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes rings-on-scroll {
-  to {
-    transform: rotate(70deg) scale(1.12);
-  }
-}
-
 @keyframes page-out {
   to {
     opacity: 0;
-    transform: translateY(-14px);
   }
 }
 
@@ -297,10 +277,15 @@ body {
   scrollbar-color: var(--ink-3) transparent;
 }
 
-/* Page changes: the old page lifts away, the new one's own entrances play.
-   The sidebar stays put and nothing here ever blocks a click. */
+/* Page changes fade through: the old page goes first, then the new one comes up,
+   so two pages are never on screen together. A crossfade double exposed the
+   titles over panels of different sizes. Nothing moves, the sidebar stays put,
+   and nothing here ever blocks a click. */
 main {
   view-transition-name: page;
+  /* A long page and a short one must keep the same width, or every panel jumps
+     sideways as the scrollbar comes and goes. */
+  scrollbar-gutter: stable;
 }
 html::view-transition {
   pointer-events: none;
@@ -311,10 +296,12 @@ html::view-transition {
   mix-blend-mode: normal;
 }
 ::view-transition-old(page) {
-  animation: page-out 170ms var(--ease-in-quart) both;
+  animation: page-out 90ms var(--ease-out-quint) both;
+  mix-blend-mode: normal;
 }
 ::view-transition-new(page) {
-  animation: page-in 240ms var(--ease-out-quint) both;
+  animation: page-in 240ms var(--ease-out-quint) 80ms both;
+  mix-blend-mode: normal;
 }
 
 html.theme-wipe main {
@@ -360,7 +347,9 @@ html.theme-wipe::view-transition-new(root) {
   input,
   textarea,
   select {
-    transition: border-color var(--duration-state) var(--ease-out-quint);
+    transition:
+      background-color var(--duration-state) var(--ease-out-quint),
+      box-shadow var(--duration-state) var(--ease-out-quint);
   }
 
   ::placeholder {
@@ -375,8 +364,7 @@ html.theme-wipe::view-transition-new(root) {
 }
 
 @layer components {
-  /* The page bleeds; only the content under the masthead keeps a measure, and
-     it stays flush left, so extra width is empty field. */
+  /* Content keeps a measure and stays flush left; panels sit on the paper. */
   .page {
     width: 100%;
     padding: 2rem 2rem 4rem;
@@ -384,30 +372,33 @@ html.theme-wipe::view-transition-new(root) {
   .page > :not(.masthead, .bleed) {
     max-width: 60rem;
   }
+  /* Out to the masthead's edges, so panels line up with it. */
   .bleed {
-    margin-inline: -2rem;
+    margin-inline: -1.25rem;
   }
 
-  /* A colour field across the whole top of the page: the poster. */
+  /* The big panel at the top of every page. It sits a little in from the window
+     so its round corners show; its text still starts on the page margin. Every
+     title starts at the same place, so only the words change between pages. */
   .masthead {
     position: relative;
-    /* clip, not hidden: hidden would make this the rings' scroll container. */
     overflow: clip;
-    isolation: isolate;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
-    min-height: 15.5rem;
-    margin: -2rem -2rem 2.5rem;
-    padding: 2rem 2rem 1.75rem;
+    margin: -1.25rem -1.25rem 2rem;
+    padding: 1.75rem 1.25rem 1.5rem;
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+  }
+  .masthead.tone-invert,
+  .masthead.tone-amber {
+    background: var(--paper);
   }
   .masthead-compact {
-    min-height: 10rem;
-    margin-bottom: 1.5rem;
-    padding-bottom: 1.25rem;
+    margin-bottom: 1rem;
   }
   .masthead-hero {
-    min-height: 26rem;
+    min-height: 24rem;
     justify-content: space-between;
     padding-bottom: 0;
   }
@@ -419,22 +410,11 @@ html.theme-wipe::view-transition-new(root) {
     gap: 0.5rem 2rem;
   }
   .masthead-hero .masthead-head {
-    flex-direction: column;
     align-items: flex-start;
-    gap: 0.25rem;
   }
-  /* On a hero the aside is a line under the title, clear of the rings. */
-  .masthead-hero .masthead-aside {
-    margin: 0;
-    padding: 0;
-    background: none;
-  }
-  /* Set on a flat block, so it stays readable with the rings behind it. */
   .masthead-aside {
     min-width: 0;
-    margin: 0 -0.75rem 0 0;
-    padding: 0.5rem 0.75rem;
-    background: var(--paper);
+    padding-bottom: 0.25rem;
     animation: pop-in 480ms var(--ease-out-quint) 180ms both;
   }
 
@@ -456,9 +436,6 @@ html.theme-wipe::view-transition-new(root) {
   .title-line {
     display: block;
     animation: title-up 720ms var(--ease-out-expo) both;
-  }
-  .stop-land {
-    animation: stop-land 520ms var(--ease-out-expo) 300ms both;
   }
 
   .figure {
@@ -504,78 +481,34 @@ html.theme-wipe::view-transition-new(root) {
     text-wrap: pretty;
   }
 
-  /* The sound rings. Centred on the disc; positions come from Page.tsx. */
-  .rings {
-    position: absolute;
-    z-index: -1;
-    pointer-events: none;
-    aspect-ratio: 1;
-    color: var(--ink);
-  }
-  .ring {
-    transform: rotate(var(--start));
-    animation: ring-in 1100ms var(--ease-out-expo) var(--delay) both;
-  }
-  .ring-live {
-    transform-origin: 0 0;
-  }
-  [data-activity="recording"] .ring-live {
-    animation: ring-spin var(--spin) linear infinite;
-  }
-  [data-activity="processing"] .ring-live {
-    animation: ring-spin calc(var(--spin) * 0.45) linear infinite;
-  }
-  .rings-swell {
-    transform: scale(calc(1 + var(--level, 0) * 0.07));
-    transition: transform 110ms linear;
-  }
-  .rings-core {
-    fill: var(--accent);
-    transform: scale(calc(1 + var(--level, 0) * 0.9));
-    transition: transform 90ms linear;
-  }
-  .rings-core-in {
-    animation: core-in 760ms var(--ease-out-expo) both;
-  }
-
-  /* Bars of real data along the foot of a field. */
+  /* Bars of real data rising from a baseline. Their height is set directly so
+     the round tops keep their shape; only the entrance is a transform. */
   .bars {
     display: flex;
     align-items: flex-end;
-    gap: 2px;
+    gap: 3px;
   }
   .bars > * {
     flex: 1 1 0;
     min-width: 0;
-    height: 100%;
+    border-radius: 0.375rem 0.375rem 0 0;
     transform-origin: bottom;
-    animation: grow-up 720ms var(--ease-out-expo) both;
+    animation: grow-up 640ms var(--ease-out-expo) both;
   }
 
-  /* The axis: a heading hanging in the margin, content from the fourth of
-     the twelve columns on. Everything in the app lines up on it. */
+  /* The axis: a heading in the margin, content from the fourth of the twelve
+     columns on. */
   .hang {
-    position: relative;
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
     column-gap: 1rem;
-  }
-  /* Its rule draws itself across the page. */
-  .hang::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 auto;
-    height: 1px;
-    background: var(--ink);
-    transform-origin: left;
-    animation: grow-across 900ms var(--ease-out-expo) both;
   }
   .hang-label {
     grid-column: span 3;
     align-self: start;
     position: sticky;
     top: 0;
-    padding-block: 0.75rem;
+    padding-block: 0.875rem;
     font-weight: 700;
   }
   .hang-body {
@@ -583,12 +516,17 @@ html.theme-wipe::view-transition-new(root) {
     min-width: 0;
   }
 
-  /* A row of the page's fine print: separated by hairlines, never boxed. */
+  /* A rounded panel of rows with hairlines between them. */
+  .rows {
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+    padding-inline: 1.25rem;
+  }
   .rows > * + * {
     border-top: 1px solid var(--rule);
   }
 
-  /* Solid ink. On hover amber wipes across from the left. */
+  /* Pills. Solid ink; on hover amber wipes across from the left. */
   .btn-primary,
   .btn,
   .btn-danger {
@@ -597,8 +535,9 @@ html.theme-wipe::view-transition-new(root) {
     overflow: hidden;
     display: inline-flex;
     align-items: center;
-    height: 2rem;
-    padding-inline: 0.75rem;
+    height: 2.125rem;
+    padding-inline: 1rem;
+    border-radius: 999px;
     white-space: nowrap;
   }
   .btn-primary::before,
@@ -629,9 +568,10 @@ html.theme-wipe::view-transition-new(root) {
     color: var(--accent-ink);
   }
 
-  /* A ruled box. On hover it fills with ink the same way. */
+  /* A soft pill. On hover it fills with ink the same way. */
   .btn {
-    border: 1px solid var(--ink);
+    background: var(--surface-2);
+    font-weight: 500;
   }
   .btn::before {
     background: var(--ink);
@@ -677,22 +617,24 @@ html.theme-wipe::view-transition-new(root) {
     opacity: 0.35;
   }
 
-  /* Fields are a rule to write on, not a box. */
+  /* Fields are a soft filled pill. */
   .field {
     min-width: 0;
     border: 0;
-    border-bottom: 1px solid var(--ink-3);
-    border-radius: 0;
-    background: transparent;
-    padding: 0.25rem 0;
+    border-radius: var(--radius-inner);
+    background: var(--surface-2);
+    padding: 0.4375rem 0.75rem;
     outline: none;
   }
-  .field:hover {
-    border-color: var(--ink);
+  .masthead .field {
+    border-radius: 999px;
+    padding-inline: 1rem;
+  }
+  .masthead .field-select {
+    padding-right: 2.25rem;
   }
   .field:focus {
-    border-color: var(--ink);
-    box-shadow: 0 1px 0 var(--ink);
+    box-shadow: 0 0 0 2px var(--focus);
   }
   .field:disabled {
     opacity: 0.35;
@@ -701,31 +643,33 @@ html.theme-wipe::view-transition-new(root) {
   .field-select {
     appearance: none;
     max-width: 16rem;
-    padding-right: 1.25rem;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23857f77' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23857f77' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 0.125rem center;
+    background-position: right 0.75rem center;
   }
   .field-select option {
     color: initial;
   }
 
-  /* A hairline with a tall tick on it. */
+  /* A soft track with a round thumb. */
   .range {
     appearance: none;
     width: 10rem;
     height: 1.25rem;
-    background: linear-gradient(var(--ink-3), var(--ink-3)) center / 100% 1px no-repeat;
+    border-radius: 999px;
+    background: linear-gradient(var(--surface-2), var(--surface-2)) center / 100% 0.375rem no-repeat;
   }
   .range::-webkit-slider-thumb {
     appearance: none;
-    width: 4px;
+    width: 1.125rem;
     height: 1.125rem;
+    border-radius: 50%;
     background: var(--ink);
     transition: transform var(--duration-state) var(--ease-out-quint);
   }
   .range:hover::-webkit-slider-thumb {
-    transform: scaleX(1.75);
+    transform: scale(1.15);
   }
   .range:disabled {
     opacity: 0.35;
@@ -761,25 +705,13 @@ html.theme-wipe::view-transition-new(root) {
   .fresh::before {
     content: "";
     position: absolute;
-    inset: 0 -0.5rem;
+    inset: 0.25rem -0.625rem;
+    border-radius: var(--radius-inner);
     background: var(--accent);
     opacity: 0;
     pointer-events: none;
     animation: fresh-wash 1.8s var(--ease-out-quint) both;
     z-index: -1;
-  }
-}
-
-/* Scrolling turns the rings. Where the browser lacks scroll timelines (older
-   macOS) they simply stay still. */
-@supports (animation-timeline: scroll()) {
-  @media (prefers-reduced-motion: no-preference) {
-    .rings-scroll {
-      transform-origin: 0 0;
-      animation: rings-on-scroll linear both;
-      animation-timeline: scroll(nearest block);
-      animation-range: 0 34rem;
-    }
   }
 }
 
@@ -804,12 +736,7 @@ html.theme-wipe::view-transition-new(root) {
     font-size: 3.25rem;
   }
   .masthead-hero {
-    min-height: 22rem;
-  }
-  /* Further off the edge, so the big figure stays clear of them. */
-  .masthead-hero .rings {
-    width: 26rem;
-    right: -12rem;
+    min-height: 20rem;
   }
 }
 

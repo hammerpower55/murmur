@@ -152,8 +152,6 @@ impl Overlay {
     }
 
     pub fn level(&self, level: Level) {
-        // The main window's sound rings follow the voice, overlay or not.
-        let _ = self.app.emit_to("main", "audio-level", level);
         if self.window.is_some() && self.enabled.load(Ordering::SeqCst) {
             let _ = self.app.emit_to(LABEL, "audio-level", level);
         }

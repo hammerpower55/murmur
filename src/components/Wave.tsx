@@ -1,5 +1,4 @@
-// A small square wave beside the sidebar's status while Murmur is busy. It
-// echoes the overlay's bars, so the window and the overlay speak alike.
+// A small soft wave beside the sidebar's status while Murmur is busy.
 
 import type { Activity } from "../store/dictation";
 
@@ -12,7 +11,7 @@ export function Wave({ activity }: { activity: Activity }) {
       {RIPPLE_MS.map((delay, i) => (
         <span
           key={i}
-          className="h-3 w-[2px] bg-ink"
+          className="h-3 w-[2px] rounded-full bg-ink"
           style={
             activity === "recording"
               ? { animation: `wave 900ms var(--ease-in-out-quart) ${delay}ms infinite` }

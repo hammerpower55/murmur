@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Hang } from "./Page";
 
-/** Words in a row with a rule under the selected one that slides across. */
+/** Words in a row with a soft pill behind the selected one that slides across. */
 export function Tabs<T extends string>({
   tabs,
   value,
@@ -24,14 +24,15 @@ export function Tabs<T extends string>({
     if (mark && !placed) requestAnimationFrame(() => setPlaced(true));
   }, [mark, placed]);
   return (
-    <div ref={row} role="tablist" className="relative flex items-center gap-5">
+    <div ref={row} role="tablist" className="relative flex w-fit items-center gap-1 rounded-full bg-surface p-1">
       {mark && (
         <span
           aria-hidden
-          className="absolute bottom-0 left-0 h-0.5 w-px origin-left bg-ink"
+          className="absolute top-1 bottom-1 left-0 rounded-full bg-surface-2"
           style={{
-            transform: `translateX(${mark.x}px) scaleX(${mark.w})`,
-            transition: placed ? "transform 320ms var(--ease-out-quint)" : "none",
+            width: mark.w,
+            transform: `translateX(${mark.x}px)`,
+            transition: placed ? "transform 340ms var(--ease-out-quint), width 340ms var(--ease-out-quint)" : "none",
           }}
         />
       )}
@@ -42,7 +43,7 @@ export function Tabs<T extends string>({
           data-tab={id}
           aria-selected={value === id}
           onClick={() => onChange(id)}
-          className={`relative py-1.5 ${value === id ? "font-semibold text-ink" : "text-ink-2 hover:text-ink"}`}
+          className={`relative rounded-full px-4 py-1.5 ${value === id ? "font-semibold text-ink" : "text-ink-2 hover:text-ink"}`}
         >
           {label}
         </button>
@@ -53,7 +54,7 @@ export function Tabs<T extends string>({
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Hang label={title} className="mt-12 first-of-type:mt-0">
+    <Hang label={title} className="mt-8 first-of-type:mt-0">
       <div className="rows">{children}</div>
     </Hang>
   );
@@ -69,7 +70,7 @@ export function Row({ label, children, htmlFor }: { label: string; children: Rea
   );
 }
 
-/** A ruled bar. Off it is empty; on it fills, with the amber full stop in it. */
+/** A pill with a round knob that slides across. */
 export function Toggle({
   checked,
   onChange,
@@ -89,13 +90,13 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 border disabled:opacity-35 ${
-        checked ? "border-[var(--switch-on)] bg-[var(--switch-on)]" : "border-ink-3 enabled:hover:border-ink"
+      className={`relative h-6 w-10 shrink-0 rounded-full disabled:opacity-35 ${
+        checked ? "bg-[var(--switch-on)]" : "bg-surface-2"
       }`}
     >
       <span
-        className={`absolute top-1/2 left-1 -mt-[5px] h-2.5 w-2.5 rounded-full transition-[transform,background-color] duration-200 ease-[var(--ease-out-quint)] ${
-          checked ? "translate-x-4 bg-[var(--switch-dot)]" : "bg-ink-3"
+        className={`absolute top-1 left-1 h-4 w-4 rounded-full transition-[transform,background-color] duration-300 ease-[var(--ease-out-quint)] ${
+          checked ? "translate-x-4 bg-[var(--switch-dot)]" : "bg-ink-2"
         }`}
       />
     </button>
@@ -150,7 +151,7 @@ export function Keys({ names, label }: { names: string[]; label: (n: string) => 
   return (
     <span className="flex gap-1">
       {names.map((n) => (
-        <kbd key={n} className="border border-ink-3 px-1.5 py-0.5 font-sans text-caption font-medium">
+        <kbd key={n} className="rounded-lg bg-surface-2 px-2 py-0.5 font-sans text-caption font-semibold">
           {label(n)}
         </kbd>
       ))}

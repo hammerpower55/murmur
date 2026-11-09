@@ -36,13 +36,18 @@ export function Dictionary() {
     return () => void off.then((f) => f());
   }, [load]);
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <section className="page">
+        <Title tone="invert">Dictionary</Title>
+      </section>
+    );
+  }
 
   return (
     <section className="stagger page">
       <Title
         tone="invert"
-        seed={7}
         aside={
           data.dictionary.length > 0 && (
             <p className="max-w-[16rem] text-right text-ink-2">

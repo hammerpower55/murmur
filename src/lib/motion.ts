@@ -15,13 +15,6 @@ export function easeOutExpo(t: number): number {
   return 1 - 2 ** (-10 * t);
 }
 
-/** How far a voice moves the sound rings, 0 to 1. Speech is quiet in RMS terms,
- * so the square root spreads it out. */
-export function voiceLevel(rms: number): number {
-  if (!Number.isFinite(rms) || rms <= 0) return 0;
-  return Math.min(1, Math.sqrt(rms) * 1.6);
-}
-
 /** Runs a change of page inside a view transition where there is one (macOS 14's
  * WebKit has none, so there it is simply instant). */
 export function withViewTransition(update: () => void) {
@@ -29,7 +22,9 @@ export function withViewTransition(update: () => void) {
     update();
     return;
   }
-  document.startViewTransition(() => flushSync(update));
+  const transition = document.startViewTransition(() => flushSync(update));
+  // A hidden window skips the animation and rejects this; the page still changes.
+  transition.ready.catch(() => {});
 }
 
 /** Changes the theme with the new one spreading out from `origin`. Rust sets the
@@ -52,6 +47,7 @@ export function themeWipe(change: () => void | Promise<unknown>, origin: { x: nu
     await change();
     await heard;
   });
+  transition.ready.catch(() => {});
   void transition.finished.finally(() => root.classList.remove("theme-wipe"));
 }
 

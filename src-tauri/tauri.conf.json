@@ -23,7 +23,7 @@
         "label": "overlay",
         "url": "overlay.html",
         "width": 208,
-        "height": 64,
+        "height": 116,
         "visible": true,
         "focus": false,
         "focusable": false,

@@ -1,95 +1,108 @@
-// The floating pill. Rust decides what to show and when (overlay-phase) and
-// streams the mic level (audio-level); this page only draws.
+// The floating orb. Rust decides what to show and when (overlay-phase) and
+// streams the mic level (audio-level); this page only draws. Everything moves
+// through the grid of dots, never a transform on the canvas, so it stays crisp.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { BAR_COUNT, MAX_HEIGHT, Wave } from "./wave";
+import { Orb, REST_RADIUS } from "./orb";
+import { Wave, approach, flowRate, palette, targetScale, type OrbPhase } from "./wave";
 import "./overlay.css";
 
-type Phase = "hidden" | "recording" | "processing" | "done" | "cancelled" | "error";
+type Phase = "hidden" | OrbPhase;
 
-/** Below this the wave rests and breathes; above IDLE_EXIT it follows the voice. */
-const IDLE_ENTER = 0.03;
-const IDLE_EXIT = 0.06;
-const LEAVE_MS = 140;
-/** Each dot of the Transcribing row starts this much after its neighbour. */
-const THINK_STEP_MS = 55;
+const LEAVE_MS = 180;
+/** The size the ball grows from when it appears and shrinks to when it leaves. */
+const SMALL_SCALE = 0.45;
+/** How quickly it follows, milliseconds: the voice closely, phases softly. */
+const FOLLOW_VOICE_MS = 70;
+const FOLLOW_PHASE_MS = 150;
+const FOLLOW_LEAVE_MS = 70;
+const FOLLOW_STATE_MS = 110;
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 const pill = document.getElementById("pill") as HTMLDivElement;
-
-function makeBars(parent: HTMLElement, each?: (bar: HTMLDivElement, i: number) => void) {
-  return Array.from({ length: BAR_COUNT }, (_, i) => {
-    const bar = document.createElement("div");
-    bar.className = "bar";
-    each?.(bar, i);
-    parent.appendChild(bar);
-    return bar;
-  });
-}
-
-const bars = makeBars(document.getElementById("bars") as HTMLDivElement);
-makeBars(document.getElementById("thinking") as HTMLDivElement, (bar, i) => {
-  bar.style.animationDelay = `${i * THINK_STEP_MS}ms`;
-});
+const canvas = document.getElementById("orb") as HTMLCanvasElement;
+const orb = new Orb(canvas);
 
 const wave = new Wave();
+let phase: Phase = "hidden";
 let frame = 0;
-let idle = true;
 let leaveTimer = 0;
+let last = 0;
+let scale = SMALL_SCALE;
+let level = 0;
+let mute = 0;
+let thinking = 0;
+let done = 0;
+let cancel = 0;
+/** How far the pattern has moved. Keeps going between dictations. */
+let flow = Math.random() * 100;
 
 function draw(now: number) {
+  const dt = last === 0 ? 16 : Math.min(100, now - last);
+  last = now;
   const still = reducedMotion.matches;
-  const v = wave.sample(now);
-  if (idle && v > IDLE_EXIT) idle = false;
-  else if (!idle && v < IDLE_ENTER) idle = true;
 
-  // Resting dots breathe on a 1.2 s cycle; a voice lights the wave up.
-  const rest = still ? 0.55 : 0.5 + 0.15 * Math.sin((now / 1200) * 2 * Math.PI);
-  const levels = wave.levels(now, still);
-  const heights = wave.heights(now, still);
-  for (let i = 0; i < BAR_COUNT; i++) {
-    bars[i].style.transform = `scaleY(${heights[i] / MAX_HEIGHT})`;
-    bars[i].style.opacity = idle ? String(rest) : String(Math.min(1, 0.55 + levels[i] * 1.2));
+  const voice = phase === "recording" ? wave.valueAt(now) : 0;
+  level = approach(level, voice, dt, FOLLOW_VOICE_MS);
+
+  if (phase === "hidden") {
+    scale = approach(scale, SMALL_SCALE, dt, FOLLOW_LEAVE_MS);
+  } else {
+    const follow = phase === "recording" ? FOLLOW_VOICE_MS : FOLLOW_PHASE_MS;
+    scale = approach(scale, targetScale(phase, level, now, still), dt, follow);
+    if (!still) flow += (dt / 1000) * flowRate(phase, level);
   }
+  mute = approach(mute, phase === "cancelled" ? 1 : 0, dt, FOLLOW_STATE_MS);
+  thinking = approach(thinking, phase === "processing" ? 1 : 0, dt, FOLLOW_STATE_MS);
+  done = approach(done, phase === "done" ? 1 : 0, dt, FOLLOW_STATE_MS);
+  cancel = approach(cancel, phase === "cancelled" ? 1 : 0, dt, FOLLOW_STATE_MS);
+
+  orb.draw({ flow, level, radius: REST_RADIUS * scale, mute, thinking, done, cancel });
   frame = requestAnimationFrame(draw);
 }
 
 function startDrawing() {
-  cancelAnimationFrame(frame);
-  wave.reset(performance.now());
-  idle = true;
+  if (frame !== 0) return;
+  last = 0;
   frame = requestAnimationFrame(draw);
 }
 
+/** Nothing runs once the orb has gone. */
 function stopDrawing() {
   cancelAnimationFrame(frame);
   frame = 0;
+  orb.clear();
 }
 
-function setPhase(phase: Phase) {
+function setPhase(next: Phase) {
   window.clearTimeout(leaveTimer);
-  if (phase === "hidden") {
-    stopDrawing();
+  const wasHidden = phase === "hidden";
+  phase = next;
+
+  if (next === "hidden") {
     pill.classList.remove("shown");
-    pill.classList.add("leaving");
     leaveTimer = window.setTimeout(() => {
-      pill.classList.remove("leaving");
+      stopDrawing();
       pill.dataset.phase = "hidden";
     }, LEAVE_MS);
     return;
   }
 
-  pill.dataset.phase = phase;
-  if (!pill.classList.contains("shown")) {
-    pill.classList.remove("leaving");
-    // Restart from the resting state so the appear animation always runs.
-    void pill.offsetWidth;
-    pill.classList.add("shown");
+  pill.dataset.phase = next;
+  pill.classList.add("shown");
+  if (wasHidden) {
+    orb.resize();
+    scale = SMALL_SCALE;
+    level = 0;
+    mute = 0;
+    thinking = 0;
+    done = 0;
+    cancel = 0;
   }
-  if (phase === "recording") startDrawing();
-  else stopDrawing();
+  if (next === "recording") wave.reset(performance.now());
+  startDrawing();
 }
 
 interface Style {
@@ -97,9 +110,10 @@ interface Style {
 }
 
 function applyStyle(style: Style) {
-  document.documentElement.style.setProperty("--wave", style.waveColour);
+  orb.setPalette(palette(style.waveColour));
 }
 
+applyStyle({ waveColour: "#f6b83d" });
 listen<Style>("overlay-style", (e) => applyStyle(e.payload));
 invoke<Style>("overlay_style").then(applyStyle, () => {});
 listen<Phase>("overlay-phase", (e) => setPhase(e.payload));

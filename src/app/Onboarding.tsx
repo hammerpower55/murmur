@@ -47,12 +47,7 @@ export function Onboarding({ onDone, onSeeAllModels }: Props) {
 
   return (
     <section className="stagger page">
-      <Title
-        hero
-        tone="amber"
-        seed={21}
-        below={<Mark activity={activity} className="mb-8 h-16 w-auto self-start text-ink" />}
-      >
+      <Title tone="amber" aside={<Mark activity={activity} className="h-14 w-auto text-ink" />}>
         Welcome to
         <br />
         {APP_NAME}

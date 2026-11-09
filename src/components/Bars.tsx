@@ -1,4 +1,4 @@
-/** Real numbers drawn as a row of flat bars rising from a baseline. */
+/** Real numbers drawn as a row of soft topped bars rising from a baseline. */
 export function Bars({
   values,
   hot,
@@ -20,7 +20,7 @@ export function Bars({
           title={titles?.[i]}
           className={i === hot ? "bg-accent" : "bg-ink"}
           style={{
-            transform: `scaleY(${v / max})`,
+            height: `${(v / max) * 100}%`,
             animationDelay: `${160 + (i * 480) / Math.max(1, values.length)}ms`,
           }}
         />

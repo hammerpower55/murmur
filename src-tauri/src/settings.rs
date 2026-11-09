@@ -79,7 +79,7 @@ pub struct Settings {
     // Overlay
     pub overlay_enabled: bool,
     pub overlay_position: OverlayPosition,
-    /// The overlay wave's base colour (stored as waveColour). The older
+    /// The overlay orb's base colour (stored as waveColour). The older
     /// overlayColour key held white bars and is left unread, so earlier
     /// installs pick up the amber default.
     pub wave_colour: String,
@@ -181,7 +181,7 @@ impl Settings {
             bail!("Volume must be between 0 and 100.");
         }
         if !is_colour(&self.wave_colour) {
-            bail!("Pick a wave colour like #f6b83d.");
+            bail!("Pick an orb colour like #f6b83d.");
         }
         let lang = self.language.as_str();
         if !(lang == "auto"

@@ -12,6 +12,10 @@ const PAGE = 50;
 /** How many dictations the bars across the top show, newest on the right. */
 const PRINT = 60;
 
+/** The last unfiltered list, so coming back to History is complete from its first
+ * frame. */
+let lastRows: TranscriptRow[] | null = null;
+
 /** The numeral of the day, large, with what is left of its name under it. */
 function DayHeading({ label, iso }: { label: string; iso: string }) {
   return (
@@ -24,7 +28,7 @@ function DayHeading({ label, iso }: { label: string; iso: string }) {
 
 export function History() {
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<TranscriptRow[] | null>(null);
+  const [rows, setRows] = useState<TranscriptRow[] | null>(lastRows);
   const [more, setMore] = useState(false);
   const latest = useRef(0);
   const hotkey = useHotkeyText();
@@ -34,11 +38,20 @@ export function History() {
     const ticket = ++latest.current;
     const page = await api.listTranscripts(q, count + 1, 0);
     if (ticket !== latest.current) return;
+    const shown = page.slice(0, count);
+    if (q === "") lastRows = shown;
     setMore(page.length > count);
-    setRows(page.slice(0, count));
+    setRows(shown);
   }, []);
 
+  // Straight away when the page opens; only typing waits for a pause.
+  const opened = useRef(false);
   useEffect(() => {
+    if (!opened.current) {
+      opened.current = true;
+      void load(query, PAGE);
+      return;
+    }
     const t = window.setTimeout(() => void load(query, PAGE), 150);
     return () => window.clearTimeout(t);
   }, [query, load]);
@@ -58,26 +71,21 @@ export function History() {
   return (
     <section className="stagger page">
       <Title
-        seed={9}
-        foot={
-          print.length > 0 && (
-            <Bars className="h-16" values={print.map((r) => r.wordCount)} hot={print.length - 1} />
-          )
-        }
+        foot={<Bars className="h-16 px-5" values={print.map((r) => r.wordCount)} hot={print.length - 1} />}
         aside={
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search transcripts"
             aria-label="Search transcripts"
-            className={`${inputClass} w-52`}
+            className={`${inputClass} w-56`}
           />
         }
       >
         History
       </Title>
 
-      <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-8">
         {rows !== null && rows.length === 0 && (
           <Hang>
             {query.trim() === "" ? (

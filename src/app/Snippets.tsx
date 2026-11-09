@@ -11,11 +11,17 @@ export function Snippets() {
     void load();
   }, [load]);
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <section className="page">
+        <Title tone="amber">Snippets</Title>
+      </section>
+    );
+  }
 
   return (
     <section className="stagger page">
-      <Title tone="amber" seed={15} aside={<CsvButtons kind="snippets" onImported={() => void load()} />}>
+      <Title tone="amber" aside={<CsvButtons kind="snippets" onImported={() => void load()} />}>
         Snippets
       </Title>
 

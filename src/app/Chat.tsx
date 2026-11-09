@@ -67,7 +67,7 @@ export function Chat({ onOpenModels }: { onOpenModels: () => void }) {
   if (view && !installed) {
     return (
       <section className="page">
-        <Title seed={18}>Chat</Title>
+        <Title>Chat</Title>
         <Hang>
           <p className="statement max-w-[28ch] py-3">
             <button className={linkClass} style={{ whiteSpace: "normal" }} onClick={onOpenModels}>
@@ -85,7 +85,6 @@ export function Chat({ onOpenModels }: { onOpenModels: () => void }) {
     <section className="page flex h-full flex-col pb-6">
       <Title
         compact
-        seed={18}
         aside={
           <button
             className={linkClass}
@@ -102,7 +101,7 @@ export function Chat({ onOpenModels }: { onOpenModels: () => void }) {
         Chat
       </Title>
 
-      <div className="rows min-h-0 flex-1 overflow-y-auto border-t border-ink">
+      <div className="rows bleed min-h-0 flex-1 overflow-y-auto">
         {messages.length === 0 && (
           <div className="grid grid-cols-12 gap-x-4">
             <div className="col-span-9 col-start-4">
@@ -137,22 +136,22 @@ export function Chat({ onOpenModels }: { onOpenModels: () => void }) {
       </div>
 
       <form
-        className="grid grid-cols-12 items-end gap-x-4 border-t border-ink pt-3"
+        className="mt-3 grid grid-cols-12 items-center gap-x-4 px-5"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
-        <label htmlFor="chat-draft" className="col-span-3 pb-1 font-bold">
+        <label htmlFor="chat-draft" className="col-span-3 font-bold">
           You
         </label>
-        <div className="col-span-9 flex items-end gap-4">
+        <div className="col-span-9 flex items-center gap-3">
           <input
             id="chat-draft"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Message the word fixer"
-            className={`${inputClass} flex-1 text-read`}
+            className={`${inputClass} flex-1 rounded-full px-4 text-read`}
           />
           {busy ? (
             <button type="button" className={buttonClass} onClick={() => void api.chatStop()}>

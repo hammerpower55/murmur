@@ -116,9 +116,9 @@ function MicrophoneTest() {
   }, [on]);
   return (
     <Row label="Test microphone">
-      <div className="h-1 w-40 overflow-hidden bg-rule" aria-hidden>
+      <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-2" aria-hidden>
         <div
-          className="h-full origin-left bg-accent transition-transform duration-75 ease-out"
+          className="h-full origin-left rounded-full bg-accent transition-transform duration-75 ease-out"
           style={{ transform: `scaleX(${Math.min(1, level)})` }}
         />
       </div>
@@ -187,7 +187,13 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
   const [wpm, setWpm] = useState("");
   useEffect(() => setWpm(String(s?.typingWpm ?? "")), [s?.typingWpm]);
 
-  if (!s) return null;
+  if (!s) {
+    return (
+      <section className="page">
+        <Title>Settings</Title>
+      </section>
+    );
+  }
 
   const active = view?.models.find((m) => m.id === view.active);
   const whisper = active?.family === "whisper";
@@ -207,7 +213,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
 
   return (
     <section className="stagger page pb-24">
-      <Title seed={24}>Settings</Title>
+      <Title>Settings</Title>
 
       <Section title="General">
         <Row label="Launch at login">
@@ -361,14 +367,14 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             ))}
           </select>
         </Row>
-        <Row label="Wave colour" htmlFor="colour">
+        <Row label="Orb colour" htmlFor="colour">
           <input
             id="colour"
             type="color"
             disabled={!s.overlayEnabled}
             value={s.waveColour}
             onChange={(e) => set({ waveColour: e.target.value })}
-            className="h-5 w-9 border border-ink bg-transparent p-0 disabled:opacity-35 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
+            className="h-6 w-10 overflow-hidden rounded-full border-0 bg-transparent p-0 disabled:opacity-35 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
           />
         </Row>
       </Section>
@@ -490,7 +496,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
       {error && (
         <div
           role="alert"
-          className="fixed right-6 bottom-6 z-50 flex max-w-[90%] animate-rise items-center gap-4 bg-danger px-3 py-2 text-paper"
+          className="fixed right-6 bottom-6 z-50 flex max-w-[90%] animate-rise items-center gap-4 rounded-full bg-danger px-5 py-2.5 text-paper"
         >
           {error}
           <button className={linkClass} onClick={clearError}>

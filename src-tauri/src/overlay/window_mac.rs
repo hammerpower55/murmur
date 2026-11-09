@@ -14,12 +14,12 @@ use crate::settings::OverlayPosition;
 pub const LABEL: &str = "overlay";
 
 /// The same gaps as window.rs, in points. The window's size comes from
-/// tauri.conf.json, which fits the capsule plus `MARGIN` on each side.
+/// tauri.conf.json, which fits the orb's box plus `MARGIN` on each side.
 const MARGIN: f64 = 16.0;
-/// Gap between the capsule and the screen edge it sits against: just above
+/// Gap between the box and the screen edge it sits against: just above
 /// the Dock for the bottom positions, below the menu bar for top centre.
 const EDGE_GAP: f64 = 12.0;
-/// Gap between the capsule and the right edge in the bottom right position.
+/// Gap between the box and the right edge in the bottom right position.
 const SIDE_GAP: f64 = 16.0;
 /// NSStatusWindowLevel: above normal and floating windows, like the menu
 /// bar's status items.
@@ -77,7 +77,7 @@ impl OverlayWindow {
         }
     }
 
-    /// Places the capsule on the display under the mouse: by default centred,
+    /// Places the orb on the display under the mouse: by default centred,
     /// its bottom edge 12 points above the Dock. Only moves when the target
     /// rectangle changed.
     pub fn place_on_cursor_monitor(&self) -> Result<()> {

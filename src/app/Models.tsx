@@ -22,13 +22,13 @@ function ModelMap({ models, active }: { models: ModelInfo[]; active: string | nu
   };
   let order = 0;
   return (
-    <div className="py-3">
-      <div className="grid grid-cols-5 border-t border-l border-rule">
+    <div>
+      <div className="grid grid-cols-5 overflow-clip rounded-[var(--radius-panel)] bg-surface">
         {[...SCALE].reverse().map((accuracy) =>
           SCALE.map((speed) => (
             <div
               key={`${accuracy}-${speed}`}
-              className="flex min-h-14 flex-wrap items-center justify-center gap-1.5 border-r border-b border-rule p-1.5"
+              className="flex min-h-14 flex-wrap items-center justify-center gap-1.5 border-r border-b border-rule p-1.5 nth-[5n]:border-r-0 nth-last-[-n+5]:border-b-0"
             >
               {models
                 .filter((m) => m.accuracy === accuracy && m.speed === speed)
@@ -47,7 +47,7 @@ function ModelMap({ models, active }: { models: ModelInfo[]; active: string | nu
                       style={{
                         width: size,
                         height: size,
-                        animation: `core-in 520ms var(--ease-out-expo) ${delay}ms both`,
+                        animation: `pop-in 480ms var(--ease-out-quint) ${delay}ms both`,
                       }}
                     />
                   );
@@ -56,7 +56,7 @@ function ModelMap({ models, active }: { models: ModelInfo[]; active: string | nu
           )),
         )}
       </div>
-      <div className="mt-1 flex justify-between text-caption text-ink-3">
+      <div className="mt-1.5 flex justify-between px-5 text-caption text-ink-3">
         <span>Slower</span>
         <span>Faster</span>
       </div>
@@ -94,7 +94,13 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
     );
   }, [view, query, language]);
 
-  if (!view) return null;
+  if (!view) {
+    return (
+      <section className="page">
+        <Title>Models</Title>
+      </section>
+    );
+  }
   const active = view.models.find((m) => m.id === view.active);
   const fixers = view.models.filter((m) => m.family === "fixup");
   const card = (m: ModelInfo) => (
@@ -118,7 +124,6 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
   return (
     <section className="stagger page">
       <Title
-        seed={12}
         aside={
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex items-end gap-4">
@@ -151,12 +156,12 @@ export function Models({ onOpenChat }: { onOpenChat: () => void }) {
       </Title>
 
       {romanUrduHint && (
-        <p className="mb-8 w-fit animate-pop bg-accent px-2 py-1 font-medium text-accent-ink">
+        <p className="mb-8 w-fit animate-pop rounded-full bg-accent px-4 py-1.5 font-medium text-accent-ink">
           Roman Urdu works best with a Whisper model
         </p>
       )}
 
-      <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-8">
         {shown.length === 0 && (
           <Hang>
             <p className="py-3 text-ink-2">Clear the search to see every model.</p>

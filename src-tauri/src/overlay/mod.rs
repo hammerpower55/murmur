@@ -1,4 +1,4 @@
-//! The floating waveform pill (spec 6.4).
+//! The floating voice orb (spec 6.4).
 
 pub mod events;
 #[cfg(windows)]

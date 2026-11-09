@@ -32,9 +32,6 @@ const NAV: { id: Page; label: string }[] = [
   { id: "settings", label: "Settings" },
 ];
 
-/** Half the marker, which sits centred on the rule between nav and page. */
-const MARKER_R = 3.5;
-
 /** The foot of the nav: what the app is doing, or the key that starts it, and
  * the model that will write it down. */
 function Status() {
@@ -62,39 +59,37 @@ function Status() {
   );
 }
 
-/** A numbered contents list. The amber full stop rides the rule beside it and
- * slides to the page you are on. */
+/** A numbered contents list with a soft pill that slides to the page you are on. */
 function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
   const list = useRef<HTMLDivElement>(null);
-  const [marker, setMarker] = useState<number | null>(null);
+  const [marker, setMarker] = useState<{ y: number; h: number } | null>(null);
   // No slide on the very first placement, only between pages.
   const [placed, setPlaced] = useState(false);
   const activity = useDictation((d) => d.activity);
 
   useLayoutEffect(() => {
     const el = list.current?.querySelector<HTMLElement>(`[data-nav="${screen}"]`);
-    if (el) setMarker(el.offsetTop + el.offsetHeight / 2);
+    if (el) setMarker({ y: el.offsetTop, h: el.offsetHeight });
   }, [screen]);
   useEffect(() => {
-    if (marker !== null && !placed) requestAnimationFrame(() => setPlaced(true));
+    if (marker && !placed) requestAnimationFrame(() => setPlaced(true));
   }, [marker, placed]);
 
   return (
-    <nav className="relative z-10 flex w-44 shrink-0 flex-col border-r border-ink px-5 pt-8 pb-6">
-      <span className="flex items-center gap-2 pb-10 font-extrabold tracking-tight">
+    <nav className="relative z-10 flex w-48 shrink-0 flex-col px-3 pt-8 pb-6">
+      <span className="flex items-center gap-2 px-3 pb-10 font-extrabold tracking-tight">
         <Mark activity={activity} className="h-3 w-auto shrink-0" />
         {APP_NAME}
       </span>
       <div ref={list} className="relative flex flex-col">
-        {marker !== null && (
+        {marker && (
           <span
             aria-hidden
-            className="absolute top-0 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_0_2px_var(--paper)]"
+            className="absolute inset-x-0 top-0 rounded-full bg-surface"
             style={{
-              // Over the nav's padding (1.25 rem) to the middle of its rule.
-              right: `calc(-1.25rem - ${MARKER_R + 0.5}px)`,
-              transform: `translateY(${marker - MARKER_R}px)`,
-              transition: placed ? "transform 360ms var(--ease-out-quint)" : "none",
+              height: marker.h,
+              transform: `translateY(${marker.y}px)`,
+              transition: placed ? "transform 380ms var(--ease-out-quint)" : "none",
             }}
           />
         )}
@@ -104,7 +99,7 @@ function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
             data-nav={item.id}
             onClick={() => go(item.id)}
             aria-current={screen === item.id ? "page" : undefined}
-            className={`group flex items-baseline gap-2.5 py-1.5 text-left ${
+            className={`group relative flex items-baseline gap-2.5 rounded-full px-3 py-2 text-left ${
               screen === item.id ? "font-bold text-ink" : "text-ink-2 hover:text-ink"
             }`}
           >
@@ -122,7 +117,7 @@ function Nav({ screen, go }: { screen: Screen; go: (p: Page) => void }) {
           </button>
         ))}
       </div>
-      <div className="mt-auto pt-6">
+      <div className="mt-auto px-3 pt-6">
         <Status />
       </div>
     </nav>

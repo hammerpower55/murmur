@@ -25,19 +25,19 @@ use crate::settings::OverlayPosition;
 
 pub const LABEL: &str = "overlay";
 
-/// Capsule size in logical pixels, matching `src/overlay/overlay.css`. The
-/// rectangle is compact while recording and widens for the error line; the
-/// window fits the wide one.
+/// The box the orb sits in, in logical pixels, matching `src/overlay/overlay.css`.
+/// Tall enough for the orb at a full voice, wide enough for the error line.
 const PILL_W: i32 = 176;
-const PILL_H: i32 = 32;
-/// Room around the rectangle for its shadow and the appear animation.
+const PILL_H: i32 = 84;
+/// A little room around the box. Must match the overlay window's size in
+/// tauri.conf.json.
 const MARGIN: i32 = 16;
 const WINDOW_W: i32 = PILL_W + 2 * MARGIN;
 const WINDOW_H: i32 = PILL_H + 2 * MARGIN;
-/// Gap between the rectangle and the screen edge it sits against: just above
+/// Gap between the box and the screen edge it sits against: just above
 /// the taskbar for the bottom positions, below the top edge for top centre.
 const EDGE_GAP: i32 = 12;
-/// Gap between the wide rectangle and the right edge in the bottom right
+/// Gap between the box and the right edge in the bottom right
 /// position.
 const SIDE_GAP: i32 = 16;
 
@@ -105,9 +105,9 @@ impl OverlayWindow {
         .context("could not raise the overlay")
     }
 
-    /// Places the rectangle on the monitor under the mouse: by default centred,
+    /// Places the capsule on the monitor under the mouse: by default centred,
     /// its bottom edge 12 px above the taskbar. Only moves when the target
-    /// rectangle changed, so the webview is not resized on every dictation,
+    /// capsule changed, so the webview is not resized on every dictation,
     /// but always puts it back on top.
     pub fn place_on_cursor_monitor(&self) -> Result<()> {
         let position = self
@@ -165,7 +165,7 @@ fn target_rect(position: OverlayPosition) -> Result<RECT> {
     }
 }
 
-/// The overlay rectangle in physical pixels for a monitor work area (the
+/// The overlay capsule in physical pixels for a monitor work area (the
 /// screen minus the taskbar) at the given DPI.
 fn layout(work: RECT, dpi: u32, position: OverlayPosition) -> RECT {
     let scale = |v: i32| (v as f64 * dpi as f64 / 96.0).round() as i32;
@@ -206,7 +206,7 @@ mod tests {
         assert_eq!(r.right - r.left, WINDOW_W);
         assert_eq!(r.bottom - r.top, WINDOW_H);
         assert_eq!(r.left + (r.right - r.left) / 2, 960);
-        // Capsule bottom = window bottom minus the margin.
+        // The box's bottom = window bottom minus the margin.
         assert_eq!(r.bottom - MARGIN, 1032 - 12);
     }
 
@@ -215,7 +215,7 @@ mod tests {
         // 150% scaling.
         let r = layout(work(0, 0, 2880, 1728), 144, OverlayPosition::BottomCentre);
         assert_eq!(r.right - r.left, 312);
-        assert_eq!(r.bottom - r.top, 96);
+        assert_eq!(r.bottom - r.top, 174);
         assert_eq!(r.bottom - 24, 1728 - 18);
     }
 

@@ -10,7 +10,7 @@ export const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
   fixup: "Word fixer",
 };
 
-/** A scale of five ticks. */
+/** A scale of five soft ticks. */
 function Scale({ label, value, title }: { label: string; value: number; title: string }) {
   return (
     <div className="flex items-center gap-2" title={title} aria-label={`${label} ${value} of 5. ${title}`}>
@@ -19,7 +19,7 @@ function Scale({ label, value, title }: { label: string; value: number; title: s
         {[1, 2, 3, 4, 5].map((i) => (
           <span
             key={i}
-            className={`h-1.5 w-4 origin-left ${i <= value ? "bg-ink" : "bg-rule"}`}
+            className={`h-1.5 w-4 origin-left rounded-full ${i <= value ? "bg-ink" : "bg-surface-2"}`}
             style={{ animation: `grow-across 420ms var(--ease-out-expo) ${i * 45}ms both` }}
           />
         ))}
@@ -37,7 +37,7 @@ export function speedTitle(model: ModelInfo, device = "this PC"): string {
 }
 
 function Tag({ children }: { children: string }) {
-  return <span className="animate-pop bg-accent px-1.5 text-caption font-semibold text-accent-ink">{children}</span>;
+  return <span className="animate-pop rounded-full bg-accent px-2 text-caption font-semibold text-accent-ink">{children}</span>;
 }
 
 interface Props {
@@ -122,9 +122,9 @@ export function ModelCard(p: Props) {
 
       {downloading && p.progress && (
         <div className="mt-3 animate-pop">
-          <div className="h-1.5 bg-rule">
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
-              className="h-full origin-left bg-accent transition-transform duration-300 ease-out"
+              className="h-full origin-left rounded-full bg-accent transition-transform duration-300 ease-out"
               style={{ transform: `scaleX(${percent(p.progress.done, p.progress.total) / 100})` }}
             />
           </div>

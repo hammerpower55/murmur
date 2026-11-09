@@ -11,7 +11,7 @@ import { subscribeInsights, useInsights } from "../store/insights";
 
 const n = (v: number) => v.toLocaleString("en-US");
 
-/** A figure on its own flat block; the blocks butt up like a poster's grid. */
+/** A figure on its own rounded tile. */
 function Tile({
   label,
   value,
@@ -27,9 +27,9 @@ function Tile({
   span: string;
   large?: boolean;
 }) {
-  const toneClass = tone === "amber" ? "tone-amber" : tone === "invert" ? "tone-invert" : "border-t border-r border-rule";
+  const toneClass = tone === "amber" ? "tone-amber" : tone === "invert" ? "tone-invert" : "bg-surface";
   return (
-    <div className={`flex min-h-36 min-w-0 flex-col justify-between py-4 pr-4 pl-8 ${span} ${toneClass}`}>
+    <div className={`flex min-h-36 min-w-0 flex-col justify-between rounded-[var(--radius-panel)] px-5 py-4 ${span} ${toneClass}`}>
       <p className="font-bold">{label}</p>
       <div className="mt-6 min-w-0">
         <p className={`truncate ${large ? "stat-large" : "stat text-[2rem]"}`}>{value}</p>
@@ -72,11 +72,11 @@ function Ranked({ rows }: { rows: { key: string; label: ReactNode; title?: strin
           <span className="flex min-w-0 items-center gap-2 truncate font-medium" title={r.title}>
             {r.label}
           </span>
-          <span className="h-2.5 bg-rule" aria-hidden>
+          <span className="h-2.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
             <span
-              className={`block h-full origin-left ${i === 0 ? "bg-accent" : "bg-ink"}`}
+              className={`block h-full origin-left rounded-full ${i === 0 ? "bg-accent" : "bg-ink"}`}
               style={{
-                transform: `scaleX(${r.value / max})`,
+                width: `${(r.value / max) * 100}%`,
                 animation: motion ? `grow-across 800ms var(--ease-out-expo) ${240 + i * 50}ms both` : undefined,
               }}
             />
@@ -93,7 +93,7 @@ function HourStrip({ counts }: { counts: number[] }) {
   return (
     <div className="py-3">
       <Bars
-        className="h-28 border-b border-ink"
+        className="h-28 border-b border-rule"
         values={counts}
         hot={peak}
         titles={counts.map((c, h) => `${h}:00, ${plural(c, "dictation", "dictations")}`)}
@@ -115,12 +115,18 @@ export function Insights() {
   const data = useInsights((s) => s.data);
   useEffect(subscribeInsights, []);
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <section className="page">
+        <Title>Insights</Title>
+      </section>
+    );
+  }
 
   if (data.totalDictations === 0) {
     return (
       <section className="page">
-        <Title seed={5}>Insights</Title>
+        <Title>Insights</Title>
         <Hang>
           <Empty>Dictate a few times to see your insights.</Empty>
         </Hang>
@@ -134,9 +140,9 @@ export function Insights() {
 
   return (
     <section className="stagger page">
-      <Title seed={5}>Insights</Title>
+      <Title>Insights</Title>
 
-      <div className="bleed stagger -mt-10 grid grid-cols-12">
+      <div className="bleed stagger -mt-6 grid grid-cols-12 gap-2">
         <Tile
           tone="amber"
           large
@@ -176,7 +182,7 @@ export function Insights() {
         />
       </div>
 
-      <div className="mt-10 flex flex-col gap-12">
+      <div className="mt-8 flex flex-col gap-8">
         <Hang label="Words per day">
           <div className="pt-3">
             <ResponsiveContainer width="100%" height={260}>
@@ -186,7 +192,7 @@ export function Insights() {
                   dataKey="label"
                   tick={AXIS}
                   tickLine={false}
-                  axisLine={{ stroke: "var(--ink)" }}
+                  axisLine={{ stroke: "var(--rule)" }}
                   // Weeks counted back from today, so today always has a label
                   // and the first one never hangs off the edge.
                   ticks={perDay.filter((_, i) => (today - i) % 7 === 0).map((d) => d.label)}
@@ -202,21 +208,22 @@ export function Insights() {
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "var(--paper)",
-                    border: "1px solid var(--ink)",
-                    borderRadius: 0,
+                    background: "var(--surface-2)",
+                    border: "none",
+                    borderRadius: 12,
                     boxShadow: "none",
                     fontSize: 12,
                     padding: "4px 8px",
                   }}
                   labelStyle={{ color: "var(--ink-2)" }}
                   itemStyle={{ color: "var(--ink)", padding: 0 }}
-                  cursor={{ fill: "var(--rule)" }}
+                  cursor={{ fill: "var(--rule)", radius: 6 }}
                   formatter={(v) => [n(Number(v)), "Words"]}
                 />
                 <Bar
                   dataKey="words"
                   fill="var(--ink)"
+                  radius={[6, 6, 0, 0]}
                   isAnimationActive={motion}
                   animationBegin={200}
                   animationDuration={800}

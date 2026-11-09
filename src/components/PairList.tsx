@@ -130,8 +130,8 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
     commit(index === -1 ? [...pairs, p] : pairs.map((old, i) => (i === index ? p : old)));
 
   return (
-    <div>
-      <div className={`${ROW} items-end border-t border-ink py-2`}>
+    <div className="-mx-5">
+      <div className={`${ROW} items-end px-5 py-2`}>
         <span className="col-span-3 font-bold">{fields[0].label}</span>
         <span className="col-span-9 flex items-end justify-between gap-6">
           <span className="font-bold">{fields[1].label}</span>
@@ -160,12 +160,12 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
       </div>
 
       {error && (
-        <p key={error} className="animate-shake border-t border-rule py-2 text-danger">
+        <p key={error} className="animate-shake px-5 pb-2 text-danger">
           {error}
         </p>
       )}
 
-      <div className="rows border-t border-rule">
+      <div className="rows">
         {editing === -1 && (
           <Editor initial={["", ""]} fields={fields} onSave={(p) => put(-1, p)} onCancel={() => setEditing(null)} />
         )}
@@ -196,7 +196,7 @@ export function PairList({ pairs, fields, save, addLabel, empty, searchFrom = 12
               </span>
               <span className="col-span-9 flex items-start gap-4">
                 <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap text-ink-2">{p[1]}</span>
-                {tags?.[i] && <span className="shrink-0 bg-accent px-1.5 text-caption font-semibold text-accent-ink">{tags[i]}</span>}
+                {tags?.[i] && <span className="shrink-0 rounded-full bg-accent px-2 text-caption font-semibold text-accent-ink">{tags[i]}</span>}
                 <span className="flex shrink-0 gap-3 text-caption text-ink-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <button
                     className={linkClass}

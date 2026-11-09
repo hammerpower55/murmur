@@ -210,9 +210,6 @@ export const events = {
   /** idle, recording, processing, cancelled or error. */
   dictationState: (cb: (state: string) => void): Promise<UnlistenFn> =>
     listen<string>("dictation-state", (e) => cb(e.payload)),
-  /** The voice while recording, every 50 ms, for the sound rings. */
-  audioLevel: (cb: (rms: number) => void): Promise<UnlistenFn> =>
-    listen<{ rms: number; peak: number }>("audio-level", (e) => cb(e.payload.rms)),
   micLevel: (cb: (rms: number) => void): Promise<UnlistenFn> =>
     listen<{ rms: number; peak: number }>("mic-level", (e) => cb(e.payload.rms)),
   modelsChanged: (cb: () => void): Promise<UnlistenFn> => listen("models-changed", () => cb()),
