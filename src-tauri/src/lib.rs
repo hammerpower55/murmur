@@ -212,6 +212,7 @@ pub fn run() {
             let prefs = settings::load(&handle);
             let shared: settings::Shared = Arc::new(RwLock::new(prefs.clone()));
             app.manage(shared.clone());
+            settings::apply_theme(&handle, prefs.theme);
 
             // Launch at login lives in the registry; keep it in step with the
             // setting in case the user changed it in Windows.

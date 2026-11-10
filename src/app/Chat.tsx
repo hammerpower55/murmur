@@ -1,12 +1,17 @@
 // Talk to the word fixer's language model, to see what it can do. The
-// conversation lives in this page only and is never saved.
+// conversation lives in this page only and is never saved. It is set like a
+// printed interview: who is speaking in the margin, what they said on the axis.
 
 import { useEffect, useRef, useState } from "react";
-import { buttonClass, inputClass, primaryClass } from "../components/controls";
+import { buttonClass, inputClass, linkClass, primaryClass } from "../components/controls";
+import { Empty } from "../components/Empty";
+import { Hang, Stop, Title } from "../components/Page";
 import { api, errorText, events, type ChatMessage } from "../lib/api";
 import { useModels } from "../store/models";
 
 type Status = "idle" | "loading" | "writing";
+
+const TURN = "grid grid-cols-12 gap-x-4 py-3";
 
 export function Chat({ onOpenModels }: { onOpenModels: () => void }) {
   const view = useModels((m) => m.view);
@@ -62,81 +67,102 @@ export function Chat({ onOpenModels }: { onOpenModels: () => void }) {
   if (view && !installed) {
     return (
       <section className="page">
-        <h1 className="page-title">Chat</h1>
-        <p className="mt-10 text-center text-sm text-zinc-500">
-          <button className="text-accent hover:underline" onClick={onOpenModels}>
-            Download the word fixer in Models
-          </button>{" "}
-          to chat with it.
-        </p>
+        <Title>Chat</Title>
+        <Hang>
+          <p className="statement max-w-[28ch] py-3">
+            <button className={linkClass} style={{ whiteSpace: "normal" }} onClick={onOpenModels}>
+              Download the word fixer in Models
+            </button>{" "}
+            to chat with it
+            <Stop />
+          </p>
+        </Hang>
       </section>
     );
   }
 
   return (
-    <section className="page flex h-full flex-col">
-      <div className="flex items-center justify-between">
-        <h1 className="page-title">Chat</h1>
-        <button
-          className={buttonClass}
-          disabled={busy || messages.length === 0}
-          onClick={() => {
-            setMessages([]);
-            setError(null);
-          }}
-        >
-          New chat
-        </button>
-      </div>
+    <section className="page flex h-full flex-col pb-6">
+      <Title
+        compact
+        aside={
+          <button
+            className={linkClass}
+            disabled={busy || messages.length === 0}
+            onClick={() => {
+              setMessages([]);
+              setError(null);
+            }}
+          >
+            New chat
+          </button>
+        }
+      >
+        Chat
+      </Title>
 
-      <div className="mt-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-4">
+      <div className="rows bleed min-h-0 flex-1 overflow-y-auto">
         {messages.length === 0 && (
-          <p className="py-10 text-center text-sm text-zinc-500">Ask the word fixer anything to see how it thinks.</p>
+          <div className="grid grid-cols-12 gap-x-4">
+            <div className="col-span-9 col-start-4">
+              <Empty>Ask the word fixer anything to see how it thinks.</Empty>
+            </div>
+          </div>
         )}
         {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`max-w-[80%] animate-rise rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-              m.role === "user" ? "self-end bg-accent/15 text-zinc-100" : "surface self-start text-zinc-200"
-            }`}
-          >
-            {m.content}
+          <div key={i} className={`${TURN} animate-rise`}>
+            <p className="col-span-3 font-bold">{m.role === "user" ? "You" : "Word fixer"}</p>
+            <p className={`col-span-9 max-w-[68ch] text-read whitespace-pre-wrap ${m.role === "user" ? "" : "text-ink-2"}`}>
+              {m.content}
+            </p>
           </div>
         ))}
-        {status === "loading" && <p className="animate-breathe self-start text-xs text-accent">Loading the model</p>}
-        {status === "writing" && messages[messages.length - 1]?.role === "user" && (
-          <p className="animate-breathe self-start text-xs text-accent">Writing</p>
+        {(status === "loading" || (status === "writing" && messages[messages.length - 1]?.role === "user")) && (
+          <div className={TURN}>
+            <p className="col-span-3 font-bold">Word fixer</p>
+            <p className="col-span-9 animate-breathe text-accent-text">
+              {status === "loading" ? "Loading the model" : "Writing"}
+            </p>
+          </div>
         )}
         {error && (
-          <p key={error} className="animate-shake self-start text-sm text-red-300">
-            {error}
-          </p>
+          <div className={TURN}>
+            <p key={error} className="col-span-9 col-start-4 animate-shake text-danger">
+              {error}
+            </p>
+          </div>
         )}
-        <div ref={end} />
+        <div ref={end} className="border-t-0!" />
       </div>
 
       <form
-        className="flex gap-3 border-t border-white/6 pt-4"
+        className="mt-3 grid grid-cols-12 items-center gap-x-4 px-5"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Message the word fixer"
-          className={`${inputClass} flex-1`}
-        />
-        {busy ? (
-          <button type="button" className={buttonClass} onClick={() => void api.chatStop()}>
-            Stop
-          </button>
-        ) : (
-          <button type="submit" className={primaryClass} disabled={!draft.trim()}>
-            Send
-          </button>
-        )}
+        <label htmlFor="chat-draft" className="col-span-3 font-bold">
+          You
+        </label>
+        <div className="col-span-9 flex items-center gap-3">
+          <input
+            id="chat-draft"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Message the word fixer"
+            className={`${inputClass} flex-1 rounded-full px-4 text-read`}
+          />
+          {busy ? (
+            <button type="button" className={buttonClass} onClick={() => void api.chatStop()}>
+              Stop
+            </button>
+          ) : (
+            <button type="submit" className={primaryClass} disabled={!draft.trim()}>
+              Send
+            </button>
+          )}
+        </div>
       </form>
     </section>
   );

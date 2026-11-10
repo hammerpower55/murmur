@@ -1,17 +1,60 @@
 import { describe, expect, it } from "vitest";
 import {
   appLabel,
+  dateline,
+  dayLabel,
+  dayOfMonth,
   formatBytes,
   formatDelta,
   formatDuration,
   formatMinutes,
   formatRam,
+  formatTime,
   formatWhen,
+  groupByDay,
   percent,
   plural,
+  posterNumber,
   shortDate,
   supportsLanguage,
 } from "./format";
+
+describe("days", () => {
+  const now = new Date(2026, 10, 9, 16, 0);
+
+  it("names recent days and adds the year only from another year", () => {
+    expect(dayLabel("2026-11-09T01:00:00", now)).toBe("Today");
+    expect(dayLabel("2026-11-08T23:59:00", now)).toBe("Yesterday");
+    expect(dayLabel("2026-10-28T12:00:00", now)).toBe("28 Oct");
+    expect(dayLabel("2025-10-28T12:00:00", now)).toBe("28 Oct 2025");
+  });
+
+  it("groups rows by day and keeps their order", () => {
+    const rows = ["2026-11-09T14:00:00", "2026-11-09T09:00:00", "2026-11-08T20:00:00", "2026-10-28T08:00:00"].map(
+      (createdAt) => ({ createdAt }),
+    );
+    expect(groupByDay(rows, now).map((g) => [g.label, g.rows.length])).toEqual([
+      ["Today", 2],
+      ["Yesterday", 1],
+      ["28 Oct", 1],
+    ]);
+    expect(groupByDay([], now)).toEqual([]);
+  });
+
+  it("writes the time and the dateline", () => {
+    expect(formatTime("2026-11-09T14:05:00")).toBe("2:05 PM");
+    expect(dateline(now)).toBe("Monday 9 November");
+    expect(dayOfMonth("2026-10-28T12:00:00")).toBe(28);
+  });
+});
+
+describe("posterNumber", () => {
+  it("opens up the commas and leaves short numbers alone", () => {
+    expect(posterNumber(12480)).toBe("12, 480");
+    expect(posterNumber(1234567)).toBe("1, 234, 567");
+    expect(posterNumber(480)).toBe("480");
+  });
+});
 
 describe("formatBytes", () => {
   it("matches the sizes Windows shows", () => {

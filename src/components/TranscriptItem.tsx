@@ -1,28 +1,26 @@
 import { useState } from "react";
 import { type TranscriptRow } from "../lib/api";
-import { useAppIcon } from "../lib/icons";
 import { appLabel, formatDuration, formatWhen, plural } from "../lib/format";
 import { languageName } from "../lib/languages";
-
-function AppIcon({ app }: { app: string | null }) {
-  const src = useAppIcon(app);
-  return src ? (
-    <img src={src} alt="" className="h-4 w-4 shrink-0" />
-  ) : (
-    <span className="h-4 w-4 shrink-0 rounded bg-zinc-700" />
-  );
-}
+import { AppIcon } from "./AppIcon";
+import { linkClass } from "./controls";
 
 const FRESH_MS = 8000;
+/** The latest dictation runs large, unless it would fill the page. */
+const LEAD_MAX_CHARS = 280;
 
 interface Props {
   row: TranscriptRow;
   onDelete?: () => void;
+  /** Replaces the date and time, where a heading already gives the day. */
+  time?: string;
+  /** Set as the page's lead paragraph. */
+  lead?: boolean;
 }
 
-export function TranscriptItem({ row, onDelete }: Props) {
+export function TranscriptItem({ row, onDelete, time, lead }: Props) {
   const [copied, setCopied] = useState(false);
-  // Dictated in the last few seconds: greet it with a soft ring, once.
+  // Dictated in the last few seconds: greet it with a wash of amber, once.
   const [fresh] = useState(() => Date.now() - new Date(row.createdAt).getTime() < FRESH_MS);
 
   const copy = async () => {
@@ -32,53 +30,46 @@ export function TranscriptItem({ row, onDelete }: Props) {
   };
 
   return (
-    <article className={`surface lift group rounded-xl px-5 py-4 ${fresh ? "fresh" : ""}`}>
-      <div className="flex items-center gap-2 text-xs text-zinc-500">
-        <AppIcon app={row.appName} />
-        <span className="truncate text-zinc-400" title={row.appTitle ?? undefined}>
-          {appLabel(row.appName)}
+    <article className={`lean group py-4 ${fresh ? "fresh" : ""}`}>
+      <p
+        className={`max-w-[68ch] whitespace-pre-wrap ${
+          lead && row.finalText.length <= LEAD_MAX_CHARS ? "statement" : "text-read"
+        }`}
+      >
+        {row.finalText}
+      </p>
+      {row.fixedWords.length > 0 && (
+        <p className="mt-1.5 flex flex-wrap gap-x-3 text-caption text-ink-2">
+          <span className="font-semibold">Fixed</span>
+          {row.fixedWords.map((f, i) => (
+            <span key={i}>
+              <span className="text-ink-3 line-through">{f.heard}</span> to {f.meant}
+            </span>
+          ))}
+        </p>
+      )}
+      <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-3 text-caption text-ink-3 tabular-nums">
+        <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={row.appTitle ?? undefined}>
+          <AppIcon app={row.appName} />
+          <span className="truncate">{appLabel(row.appName)}</span>
         </span>
-        <span>·</span>
-        <span>{formatWhen(row.createdAt)}</span>
-        <span>·</span>
+        <span>{time ?? formatWhen(row.createdAt)}</span>
         <span>{plural(row.wordCount, "word", "words")}</span>
-        <span>·</span>
         <span>{formatDuration(row.audioMs)}</span>
-        {row.language && (
-          <>
-            <span>·</span>
-            <span>{languageName(row.language)}</span>
-          </>
-        )}
-        <span className="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <button
-            onClick={() => void copy()}
-            className="rounded px-2 py-0.5 text-zinc-300 hover:bg-white/8"
-          >
-            <span key={copied ? "copied" : "copy"} className={copied ? "inline-block animate-pop text-accent" : ""}>
+        {row.language && <span>{languageName(row.language)}</span>}
+        <span className="ml-auto flex gap-3 text-ink-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <button onClick={() => void copy()} className={linkClass}>
+            <span key={copied ? "copied" : "copy"} className={copied ? "animate-pop font-semibold text-ink" : ""}>
               {copied ? "Copied" : "Copy"}
             </span>
           </button>
           {onDelete && (
-            <button onClick={onDelete} className="rounded px-2 py-0.5 text-zinc-300 hover:bg-white/8">
+            <button onClick={onDelete} className={linkClass}>
               Delete
             </button>
           )}
         </span>
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{row.finalText}</p>
-      {row.fixedWords.length > 0 && (
-        <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
-          <span className="text-accent">Fixed</span>
-          {row.fixedWords.map((f, i) => (
-            <span key={i} className="rounded-full border border-white/8 px-2 py-0.5">
-              <span className="text-zinc-500 line-through decoration-zinc-600">{f.heard}</span>
-              <span className="px-1 text-zinc-600">to</span>
-              <span className="text-zinc-200">{f.meant}</span>
-            </span>
-          ))}
-        </p>
-      )}
     </article>
   );
 }

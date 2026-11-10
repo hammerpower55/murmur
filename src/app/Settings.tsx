@@ -1,8 +1,8 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import {
-  buttonClass,
   Keys,
+  linkClass,
   Row,
   Section,
   selectClass,
@@ -10,9 +10,11 @@ import {
   Toggle,
   inputClass,
 } from "../components/controls";
-import { api, errorText, events, type OverlayPosition, type Settings as Prefs } from "../lib/api";
+import { Title } from "../components/Page";
+import { api, errorText, events, type OverlayPosition, type Settings as Prefs, type ThemeChoice } from "../lib/api";
 import { SOURCE_URL } from "../lib/app";
 import { hotkeyLabel, keyLabel, recordHotkey } from "../lib/keys";
+import { themeWipe } from "../lib/motion";
 import { languagesFor } from "../lib/languages";
 import { IS_MAC } from "../lib/platform";
 import { useInsights } from "../store/insights";
@@ -25,6 +27,12 @@ const UNLOAD_CHOICES: [number, string][] = [
   [10, "After 10 min"],
   [30, "After 30 min"],
   [60, "After 1 hour"],
+];
+
+const THEMES: [ThemeChoice, string][] = [
+  ["dark", "Dark"],
+  ["light", "Light"],
+  ["system", "Match system"],
 ];
 
 const POSITIONS: [OverlayPosition, string][] = [
@@ -76,13 +84,13 @@ function HotkeyRow({
   return (
     <Row label={label}>
       {capturing ? (
-        <span className="animate-breathe text-sm font-medium text-accent">Press keys</span>
+        <span className="animate-breathe font-medium text-accent-text">Press keys</span>
       ) : (
-        <span title={hotkeyLabel(keys)} className={disabled ? "opacity-40" : ""}>
+        <span title={hotkeyLabel(keys)} className={disabled ? "opacity-35" : ""}>
           <Keys names={keys} label={keyLabel} />
         </span>
       )}
-      <button className={buttonClass} disabled={capturing || disabled} onClick={() => void capture()}>
+      <button className={linkClass} disabled={capturing || disabled} onClick={() => void capture()}>
         Change
       </button>
     </Row>
@@ -108,13 +116,13 @@ function MicrophoneTest() {
   }, [on]);
   return (
     <Row label="Test microphone">
-      <div className="h-2 w-40 overflow-hidden rounded-full bg-zinc-800" aria-hidden>
+      <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-2" aria-hidden>
         <div
           className="h-full origin-left rounded-full bg-accent transition-transform duration-75 ease-out"
           style={{ transform: `scaleX(${Math.min(1, level)})` }}
         />
       </div>
-      <button className={`${buttonClass} w-16`} onClick={() => setOn(!on)}>
+      <button className={`${linkClass} w-10 text-right`} onClick={() => setOn(!on)}>
         {on ? "Stop" : "Start"}
       </button>
     </Row>
@@ -136,22 +144,19 @@ function ClearHistory() {
   };
   return (
     <Row label="Clear history">
-      {status && <span className="text-sm text-zinc-400">{status}</span>}
+      {status && <span className="text-ink-2">{status}</span>}
       {confirming ? (
         <>
-          <button className={buttonClass} onClick={() => setConfirming(false)}>
+          <button className={linkClass} onClick={() => setConfirming(false)}>
             Cancel
           </button>
-          <button
-            onClick={() => void clear()}
-            className="rounded-md bg-red-400 px-3 py-1.5 text-sm font-medium text-zinc-950 hover:bg-red-300"
-          >
+          <button onClick={() => void clear()} className="btn-danger">
             Delete every transcript
           </button>
         </>
       ) : (
         <button
-          className={buttonClass}
+          className={linkClass}
           onClick={() => {
             setStatus(null);
             setConfirming(true);
@@ -182,7 +187,13 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
   const [wpm, setWpm] = useState("");
   useEffect(() => setWpm(String(s?.typingWpm ?? "")), [s?.typingWpm]);
 
-  if (!s) return null;
+  if (!s) {
+    return (
+      <section className="page">
+        <Title>Settings</Title>
+      </section>
+    );
+  }
 
   const active = view?.models.find((m) => m.id === view.active);
   const whisper = active?.family === "whisper";
@@ -202,7 +213,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
 
   return (
     <section className="stagger page pb-24">
-      <h1 className="page-title">Settings</h1>
+      <Title>Settings</Title>
 
       <Section title="General">
         <Row label="Launch at login">
@@ -219,8 +230,23 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             onChange={(v) => set({ closeToTray: v })}
           />
         </Row>
-        <Row label="Theme">
-          <span className="text-sm text-zinc-400">Dark</span>
+        <Row label="Theme" htmlFor="theme">
+          <select
+            id="theme"
+            className={selectClass}
+            value={s.theme}
+            onChange={(e) => {
+              const theme = e.target.value as ThemeChoice;
+              const box = e.target.getBoundingClientRect();
+              themeWipe(() => update({ theme }), { x: box.right - 8, y: box.top + box.height / 2 });
+            }}
+          >
+            {THEMES.map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
         </Row>
       </Section>
 
@@ -279,8 +305,8 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
 
       <Section title="Models">
         <Row label="Active model">
-          <span className="text-sm text-zinc-400">{active?.name ?? "None"}</span>
-          <button className={buttonClass} onClick={onOpenModels}>
+          <span className="text-ink-2">{active?.name ?? "None"}</span>
+          <button className={linkClass} onClick={onOpenModels}>
             Change
           </button>
         </Row>
@@ -341,14 +367,14 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             ))}
           </select>
         </Row>
-        <Row label="Wave colour" htmlFor="colour">
+        <Row label="Orb colour" htmlFor="colour">
           <input
             id="colour"
             type="color"
             disabled={!s.overlayEnabled}
             value={s.waveColour}
             onChange={(e) => set({ waveColour: e.target.value })}
-            className="h-7 w-10 cursor-pointer rounded border border-white/10 bg-transparent disabled:opacity-40"
+            className="h-6 w-10 overflow-hidden rounded-full border-0 bg-transparent p-0 disabled:opacity-35 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
           />
         </Row>
       </Section>
@@ -376,7 +402,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
         </Row>
         <Row label="Fix misheard words">
           {s.fixMisheardWords && !fixerInstalled && (
-            <button className={buttonClass} onClick={onOpenModels}>
+            <button className={linkClass} onClick={onOpenModels}>
               Download the word fixer
             </button>
           )}
@@ -431,9 +457,9 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
             onChange={(e) => setWpm(e.target.value.replace(/\D/g, ""))}
             onBlur={saveWpm}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            className={`${inputClass} w-16 text-right tabular-nums`}
+            className={`${inputClass} w-12 text-right tabular-nums`}
           />
-          <span className="text-sm text-zinc-400">wpm</span>
+          <span className="text-ink-2">wpm</span>
         </Row>
       </Section>
 
@@ -443,7 +469,7 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
         </Row>
         <ClearHistory />
         <Row label="Data folder">
-          <button className={buttonClass} onClick={() => void api.openDataFolder()}>
+          <button className={linkClass} onClick={() => void api.openDataFolder()}>
             Open
           </button>
         </Row>
@@ -451,16 +477,16 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
 
       <Section title="About">
         <Row label="Version">
-          <span className="text-sm text-zinc-400 tabular-nums">{version}</span>
+          <span className="text-ink-2 tabular-nums">{version}</span>
         </Row>
         <Row label="Open source licences">
-          <button className={buttonClass} onClick={() => void api.openLicences()}>
+          <button className={linkClass} onClick={() => void api.openLicences()}>
             Open
           </button>
         </Row>
         {SOURCE_URL && (
           <Row label="Source code">
-            <button className={buttonClass} onClick={() => void openUrl(SOURCE_URL)}>
+            <button className={linkClass} onClick={() => void openUrl(SOURCE_URL)}>
               Open
             </button>
           </Row>
@@ -470,10 +496,10 @@ export function Settings({ onOpenModels }: { onOpenModels: () => void }) {
       {error && (
         <div
           role="alert"
-          className="surface fixed inset-x-0 bottom-6 mx-auto flex w-fit max-w-[90%] animate-rise items-center gap-4 rounded-lg px-4 py-2.5 text-sm text-red-200"
+          className="fixed right-6 bottom-6 z-50 flex max-w-[90%] animate-rise items-center gap-4 rounded-full bg-danger px-5 py-2.5 text-paper"
         >
           {error}
-          <button className="text-zinc-400 hover:text-zinc-200" onClick={clearError}>
+          <button className={linkClass} onClick={clearError}>
             Close
           </button>
         </div>

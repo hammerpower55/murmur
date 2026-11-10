@@ -1,16 +1,12 @@
-import type { ReactNode } from "react";
-import { useDictation } from "../store/dictation";
-import { Wave } from "./Wave";
+import { Stop } from "./Page";
 
-/** An empty state that listens: its wave comes alive the moment you dictate. */
-export function Empty({ children }: { children: ReactNode }) {
-  const activity = useDictation((d) => d.activity);
+/** An empty state: one flush left sentence, ended by the full stop that comes
+ * alive the moment you dictate. */
+export function Empty({ children }: { children: string }) {
   return (
-    <div className="flex animate-rise flex-col items-center gap-5 py-14 text-center">
-      <span className={activity === "idle" ? "animate-breathe" : ""}>
-        <Wave activity={activity} size="lg" />
-      </span>
-      <p className="text-sm text-zinc-400">{children}</p>
-    </div>
+    <p className="statement max-w-[28ch] animate-rise py-3 text-balance">
+      {children.replace(/\.$/, "")}
+      <Stop />
+    </p>
   );
 }

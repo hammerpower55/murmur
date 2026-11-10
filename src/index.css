@@ -1,61 +1,156 @@
 @import "tailwindcss";
 
-/* Design context: .impeccable.md. Quiet, warm, attentive. */
+/* Design context: .impeccable.md. Bold and rounded: one family, one axis, big
+   soft panels and pill controls. */
 
-/* Bundled so the app stays offline. Both SIL Open Font License, see
-   src/assets/fonts/*-OFL.txt. Onest for the interface, Young Serif for
-   page titles only. */
+/* Bundled so the app stays offline. SIL Open Font License, see
+   src/assets/fonts/HankenGrotesk-OFL.txt. */
 @font-face {
-  font-family: "Onest";
-  src: url("./assets/fonts/Onest-Variable.ttf") format("truetype");
+  font-family: "Hanken Grotesk";
+  src: url("./assets/fonts/HankenGrotesk-Variable.ttf") format("truetype");
   font-weight: 100 900;
   font-style: normal;
   font-display: block;
 }
 
-@font-face {
-  font-family: "Young Serif";
-  src: url("./assets/fonts/YoungSerif-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: block;
+/* Colours are variables so a colour field can redefine them: anything inside
+   .tone-invert or .tone-amber adapts without knowing it is there. The theme
+   setting reaches the media query through the window's own theme (`set_theme`
+   in Rust), so the page and the title bar always agree. */
+:root {
+  color-scheme: light dark;
+  --paper: oklch(0.975 0.006 85);
+  --surface: oklch(0.94 0.008 85);
+  --surface-2: oklch(0.895 0.01 85);
+  --ink: oklch(0.17 0.008 70);
+  --ink-2: oklch(0.4 0.008 70);
+  --ink-3: oklch(0.52 0.008 70);
+  --rule: oklch(0.17 0.008 70 / 0.12);
+  --accent: oklch(0.8 0.165 78);
+  --accent-ink: oklch(0.2 0.03 70);
+  /* Amber as words: dark enough to read on paper. */
+  --accent-text: oklch(0.5 0.11 68);
+  --danger: oklch(0.5 0.19 28);
+  --focus: oklch(0.17 0.008 70);
+  --switch-on: oklch(0.17 0.008 70);
+  --switch-dot: oklch(0.8 0.165 78);
+}
+
+.tone-invert {
+  --paper: oklch(0.165 0.006 70);
+  --surface: oklch(0.225 0.007 70);
+  --surface-2: oklch(0.285 0.008 70);
+  --ink: oklch(0.94 0.006 85);
+  --ink-2: oklch(0.74 0.008 80);
+  --ink-3: oklch(0.62 0.008 78);
+  --rule: oklch(0.94 0.006 85 / 0.12);
+  --accent: oklch(0.82 0.155 80);
+  --accent-ink: oklch(0.2 0.03 70);
+  --accent-text: oklch(0.84 0.14 82);
+  --danger: oklch(0.72 0.16 28);
+  --focus: oklch(0.82 0.155 80);
+  --switch-on: oklch(0.82 0.155 80);
+  --switch-dot: oklch(0.165 0.006 70);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: oklch(0.165 0.006 70);
+    --surface: oklch(0.225 0.007 70);
+    --surface-2: oklch(0.285 0.008 70);
+    --ink: oklch(0.94 0.006 85);
+    --ink-2: oklch(0.74 0.008 80);
+    --ink-3: oklch(0.62 0.008 78);
+    --rule: oklch(0.94 0.006 85 / 0.12);
+    --accent: oklch(0.82 0.155 80);
+    --accent-ink: oklch(0.2 0.03 70);
+    --accent-text: oklch(0.84 0.14 82);
+    --danger: oklch(0.72 0.16 28);
+    --focus: oklch(0.82 0.155 80);
+    --switch-on: oklch(0.82 0.155 80);
+    --switch-dot: oklch(0.165 0.006 70);
+  }
+
+  .tone-invert {
+    --paper: oklch(0.975 0.006 85);
+    --surface: oklch(0.94 0.008 85);
+    --surface-2: oklch(0.895 0.01 85);
+    --ink: oklch(0.17 0.008 70);
+    --ink-2: oklch(0.4 0.008 70);
+    --ink-3: oklch(0.52 0.008 70);
+    --rule: oklch(0.17 0.008 70 / 0.12);
+    --accent: oklch(0.8 0.165 78);
+    --accent-ink: oklch(0.2 0.03 70);
+    --accent-text: oklch(0.5 0.11 68);
+    --danger: oklch(0.5 0.19 28);
+    --focus: oklch(0.17 0.008 70);
+    --switch-on: oklch(0.17 0.008 70);
+    --switch-dot: oklch(0.8 0.165 78);
+  }
+}
+
+/* The full amber field. Its "accent" is ink, so the full stop stays visible. */
+.tone-amber {
+  --paper: oklch(0.81 0.165 78);
+  --surface: oklch(0.76 0.16 76);
+  --surface-2: oklch(0.71 0.15 74);
+  --ink: oklch(0.17 0.02 70);
+  --ink-2: oklch(0.26 0.03 70);
+  --ink-3: oklch(0.32 0.04 70);
+  --rule: oklch(0.17 0.02 70 / 0.22);
+  --accent: oklch(0.17 0.02 70);
+  --accent-ink: oklch(0.81 0.165 78);
+  --accent-text: oklch(0.17 0.02 70);
+  --danger: oklch(0.32 0.14 28);
+  --focus: oklch(0.17 0.02 70);
+  --switch-on: oklch(0.17 0.02 70);
+  --switch-dot: oklch(0.81 0.165 78);
+}
+
+.tone-invert,
+.tone-amber {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-text: var(--accent-text);
+  --color-danger: var(--danger);
 }
 
 @theme {
-  --font-sans: "Onest", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-display: "Young Serif", Georgia, serif;
+  --font-sans: "Hanken Grotesk", "Helvetica Neue", Arial, system-ui, sans-serif;
 
-  /* Type scale: five steps, each at least a quarter apart in feel. */
-  --text-caption: 0.75rem; /* 12: meta, labels */
-  --text-caption--line-height: 1.45;
-  --text-body: 0.875rem; /* 14: everything you read */
-  --text-body--line-height: 1.6;
-  --text-heading: 1rem; /* 16: section headings */
-  --text-heading--line-height: 1.4;
-  --text-stat: 1.75rem; /* 28: numbers on cards */
-  --text-stat--line-height: 1.1;
-  --text-title: 2rem; /* 32: page titles, in Young Serif */
-  --text-title--line-height: 1.15;
+  /* Corners: big panels, smaller things inside them, pills for what you press. */
+  --radius-panel: 1.75rem;
+  --radius-inner: 0.75rem;
 
-  /* Warm neutrals: Tailwind's zinc scale re-tinted toward the amber of the
-     app icon, so every zinc class in the app turns warm at once. */
-  --color-zinc-50: oklch(0.985 0.002 80);
-  --color-zinc-100: oklch(0.965 0.004 80);
-  --color-zinc-200: oklch(0.915 0.006 78);
-  --color-zinc-300: oklch(0.865 0.008 76);
-  --color-zinc-400: oklch(0.705 0.012 74);
-  --color-zinc-500: oklch(0.555 0.012 72);
-  --color-zinc-600: oklch(0.445 0.011 70);
-  --color-zinc-700: oklch(0.37 0.01 70);
-  --color-zinc-800: oklch(0.275 0.008 70);
-  --color-zinc-900: oklch(0.215 0.007 70);
-  --color-zinc-950: oklch(0.155 0.006 70);
-  --color-white: oklch(0.99 0.004 80);
-
-  /* The one accent, from the app icon. Rare by design. */
-  --color-accent: oklch(0.82 0.15 80);
-  --color-accent-strong: oklch(0.87 0.14 85);
-  --color-accent-ink: oklch(0.24 0.05 70);
+  /* Type scale: few sizes, far apart. */
+  --text-caption: 0.75rem; /* 12: meta, column heads */
+  --text-caption--line-height: 1.4;
+  --text-body: 0.875rem; /* 14: the interface */
+  --text-body--line-height: 1.5;
+  --text-read: 1rem; /* 16: what you said */
+  --text-read--line-height: 1.5;
+  --text-lede: 1.75rem; /* 28: the latest thing you said */
+  --text-lede--line-height: 1.2;
+  --text-stat: 2.5rem; /* 40: numbers in a table of figures */
+  --text-stat--line-height: 1.05;
+  --text-numeral: 3.5rem; /* 56: dates and steps in the margin */
+  --text-numeral--line-height: 0.95;
+  --text-title: 6rem; /* 96: page titles */
+  --text-title--line-height: 0.92;
+  --text-figure: 8rem; /* 128: the one number a page is about */
+  --text-figure--line-height: 0.9;
 
   /* Motion tokens. Exponential ease out; exits a little faster than entries. */
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
@@ -63,34 +158,25 @@
   --ease-in-quart: cubic-bezier(0.5, 0, 0.75, 0);
   --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
   --duration-press: 120ms;
-  --duration-state: 220ms;
+  --duration-state: 180ms;
   --duration-enter: 560ms;
 
   --animate-rise: rise var(--duration-enter) var(--ease-out-expo) both;
-  --animate-page: page-in 420ms var(--ease-out-quint) both;
-  --animate-pop: pop-in 280ms var(--ease-out-quint) both;
+  --animate-pop: pop-in 220ms var(--ease-out-quint) both;
   --animate-shake: shake 360ms var(--ease-out-quint);
-  --animate-breathe: breathe 2.4s var(--ease-in-out-quart) infinite;
+  --animate-breathe: breathe 1.2s var(--ease-in-out-quart) infinite;
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
-  }
-}
-
-@keyframes page-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
 }
 
 @keyframes pop-in {
   from {
     opacity: 0;
-    transform: scale(0.96);
   }
 }
 
@@ -108,11 +194,11 @@
 
 @keyframes breathe {
   50% {
-    opacity: 0.45;
+    opacity: 0.3;
   }
 }
 
-/* A bar of the dictation wave: height follows --level while recording. */
+/* A bar of the status wave. */
 @keyframes wave {
   0%,
   100% {
@@ -125,18 +211,52 @@
 
 @keyframes grow-up {
   from {
-    opacity: 0;
-    transform: scaleY(0.2);
+    transform: scaleY(0);
   }
 }
 
-/* A transcript that just arrived: a soft amber ring that fades out. */
-@keyframes fresh-ring {
+@keyframes grow-across {
   from {
-    box-shadow: 0 0 0 1px oklch(0.82 0.15 80 / 0.55), 0 0 0 6px oklch(0.82 0.15 80 / 0.12);
+    transform: scaleX(0);
+  }
+}
+
+/* A transcript that just arrived: a wash of amber that drains away. */
+@keyframes fresh-wash {
+  from {
+    opacity: 0.45;
   }
   to {
-    box-shadow: 0 0 0 1px oklch(0.82 0.15 80 / 0), 0 0 0 6px oklch(0.82 0.15 80 / 0);
+    opacity: 0;
+  }
+}
+
+/* A title comes up from behind its own baseline. */
+@keyframes title-up {
+  from {
+    transform: translateY(108%);
+  }
+}
+
+@keyframes page-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The new theme spreads out from the control that asked for it. */
+@keyframes theme-wipe {
+  from {
+    clip-path: circle(0 at var(--wipe-x, 50%) var(--wipe-y, 50%));
+  }
+  to {
+    clip-path: circle(150vmax at var(--wipe-x, 50%) var(--wipe-y, 50%));
   }
 }
 
@@ -147,12 +267,52 @@ body,
 }
 
 body {
-  background: var(--color-zinc-950);
-  color: var(--color-zinc-100);
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-sans);
-  /* Light text on dark reads thinner; a touch more leading helps. */
-  line-height: 1.6;
+  font-size: var(--text-body);
+  line-height: 1.5;
   font-feature-settings: "kern", "calt";
+  -webkit-font-smoothing: antialiased;
+  scrollbar-color: var(--ink-3) transparent;
+}
+
+/* Page changes fade through: the old page goes first, then the new one comes up,
+   so two pages are never on screen together. A crossfade double exposed the
+   titles over panels of different sizes. Nothing moves, the sidebar stays put,
+   and nothing here ever blocks a click. */
+main {
+  view-transition-name: page;
+  /* A long page and a short one must keep the same width, or every panel jumps
+     sideways as the scrollbar comes and goes. */
+  scrollbar-gutter: stable;
+}
+html::view-transition {
+  pointer-events: none;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(page) {
+  animation: page-out 90ms var(--ease-out-quint) both;
+  mix-blend-mode: normal;
+}
+::view-transition-new(page) {
+  animation: page-in 240ms var(--ease-out-quint) 80ms both;
+  mix-blend-mode: normal;
+}
+
+html.theme-wipe main {
+  view-transition-name: none;
+}
+html.theme-wipe::view-transition-old(root) {
+  z-index: 0;
+}
+html.theme-wipe::view-transition-new(root) {
+  z-index: 1;
+  animation: theme-wipe 720ms var(--ease-out-expo) both;
 }
 
 @layer base {
@@ -167,108 +327,416 @@ body {
       transform var(--duration-press) var(--ease-out-quint);
   }
 
+  button {
+    cursor: default;
+  }
+
   button:active:not(:disabled) {
     transform: scale(0.97);
   }
 
+  * {
+    scrollbar-width: thin;
+  }
+
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
 
   input,
   textarea,
   select {
-    transition: border-color var(--duration-state) var(--ease-out-quint);
+    transition:
+      background-color var(--duration-state) var(--ease-out-quint),
+      box-shadow var(--duration-state) var(--ease-out-quint);
+  }
+
+  ::placeholder {
+    color: var(--ink-3);
+    opacity: 1;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
 @layer components {
-  /* Page frame on a 4 px grid: generous edges, more room below than above. */
+  /* Content keeps a measure and stays flush left; panels sit on the paper. */
   .page {
-    margin-inline: auto;
     width: 100%;
-    max-width: 48rem;
-    padding: 2.5rem 2.5rem 4rem;
+    padding: 2rem 2rem 4rem;
   }
-  .page-wide {
+  .page > :not(.masthead, .bleed) {
     max-width: 60rem;
   }
+  /* Out to the masthead's edges, so panels line up with it. */
+  .bleed {
+    margin-inline: -1.25rem;
+  }
 
-  .page-title {
-    font-family: var(--font-display);
+  /* The big panel at the top of every page. It sits a little in from the window
+     so its round corners show; its text still starts on the page margin. Every
+     title starts at the same place, so only the words change between pages. */
+  .masthead {
+    position: relative;
+    overflow: clip;
+    display: flex;
+    flex-direction: column;
+    margin: -1.25rem -1.25rem 2rem;
+    padding: 1.75rem 1.25rem 1.5rem;
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+  }
+  .masthead.tone-invert,
+  .masthead.tone-amber {
+    background: var(--paper);
+  }
+  .masthead-compact {
+    margin-bottom: 1rem;
+  }
+  .masthead-hero {
+    min-height: 24rem;
+    justify-content: space-between;
+    padding-bottom: 0;
+  }
+  .masthead-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.5rem 2rem;
+  }
+  .masthead-hero .masthead-head {
+    align-items: flex-start;
+  }
+  .masthead-aside {
+    min-width: 0;
+    padding-bottom: 0.25rem;
+    animation: pop-in 480ms var(--ease-out-quint) 180ms both;
+  }
+
+  .title {
     font-size: var(--text-title);
     line-height: var(--text-title--line-height);
-    font-weight: 400;
-    letter-spacing: -0.01em;
-    color: var(--color-zinc-50);
+    font-weight: 800;
+    letter-spacing: -0.05em;
+    /* Optical: pulls the first letter's side bearing onto the page margin. */
+    margin-left: -0.05em;
+  }
+  /* The window the title rises through; room is left for its descenders. */
+  .title-clip {
+    display: block;
+    overflow: hidden;
+    padding: 0.04em 0.06em 0.2em;
+    margin: -0.04em -0.06em -0.2em;
+  }
+  .title-line {
+    display: block;
+    animation: title-up 720ms var(--ease-out-expo) both;
   }
 
-  .section-title {
-    font-size: var(--text-heading);
-    line-height: var(--text-heading--line-height);
-    font-weight: 550;
-    letter-spacing: -0.005em;
-    color: var(--color-zinc-200);
+  .figure {
+    font-size: var(--text-figure);
+    line-height: var(--text-figure--line-height);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    /* The font kerns a comma tight against a 4, which touches at this size. */
+    font-kerning: none;
+    font-variant-numeric: proportional-nums;
+    margin-left: -0.04em;
   }
 
-  .stat-label {
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
-    color: var(--color-zinc-400);
-  }
-  .stat-value {
+  .stat {
     font-size: var(--text-stat);
     line-height: var(--text-stat--line-height);
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    /* Proportional figures: Onest's tabular 1 leaves a gap ("1 2 days")
-       and these numbers never sit in columns. */
+    font-weight: 700;
+    letter-spacing: -0.03em;
     font-variant-numeric: proportional-nums;
-    color: var(--color-zinc-50);
+  }
+  .stat-large {
+    font-size: 4.5rem;
+    line-height: 0.95;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    font-kerning: none;
+    font-variant-numeric: proportional-nums;
   }
 
-  /* A card lit from above: faint top highlight, soft layered shadow. */
-  .surface {
-    border: 1px solid oklch(1 0 0 / 0.07);
-    background: linear-gradient(180deg, oklch(0.235 0.008 70 / 0.8), oklch(0.2 0.007 70 / 0.65));
-    box-shadow:
-      inset 0 1px 0 oklch(1 0.01 80 / 0.05),
-      0 1px 2px oklch(0 0 0 / 0.3),
-      0 10px 24px -14px oklch(0 0 0 / 0.6);
+  .numeral {
+    font-size: var(--text-numeral);
+    line-height: var(--text-numeral--line-height);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    font-variant-numeric: proportional-nums;
   }
 
-  /* Cards you can act on rise a little under the pointer. */
-  .lift {
-    transition:
-      transform 260ms var(--ease-out-quint),
-      box-shadow 260ms var(--ease-out-quint),
-      border-color 260ms var(--ease-out-quint);
-  }
-  .lift:hover {
-    transform: translateY(-2px);
-    border-color: oklch(1 0 0 / 0.11);
-    box-shadow:
-      inset 0 1px 0 oklch(1 0.01 80 / 0.06),
-      0 2px 4px oklch(0 0 0 / 0.3),
-      0 18px 32px -16px oklch(0 0 0 / 0.7);
+  .statement {
+    font-size: var(--text-lede);
+    line-height: var(--text-lede--line-height);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    text-wrap: pretty;
   }
 
-  /* Children of a page rise in one after another. */
+  /* Bars of real data rising from a baseline. Their height is set directly so
+     the round tops keep their shape; only the entrance is a transform. */
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+  }
+  .bars > * {
+    flex: 1 1 0;
+    min-width: 0;
+    border-radius: 0.375rem 0.375rem 0 0;
+    transform-origin: bottom;
+    animation: grow-up 640ms var(--ease-out-expo) both;
+  }
+
+  /* The axis: a heading in the margin, content from the fourth of the twelve
+     columns on. */
+  .hang {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: 1rem;
+  }
+  .hang-label {
+    grid-column: span 3;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    padding-block: 0.875rem;
+    font-weight: 700;
+  }
+  .hang-body {
+    grid-column: span 9;
+    min-width: 0;
+  }
+
+  /* A rounded panel of rows with hairlines between them. */
+  .rows {
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+    padding-inline: 1.25rem;
+  }
+  .rows > * + * {
+    border-top: 1px solid var(--rule);
+  }
+
+  /* Pills. Solid ink; on hover amber wipes across from the left. */
+  .btn-primary,
+  .btn,
+  .btn-danger {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    height: 2.125rem;
+    padding-inline: 1rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .btn-primary::before,
+  .btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    transform: scaleX(0);
+    transform-origin: right;
+    transition: transform 340ms var(--ease-out-quint);
+  }
+  .btn-primary:hover:not(:disabled)::before,
+  .btn:hover:not(:disabled)::before {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+
+  .btn-primary {
+    background: var(--ink);
+    color: var(--paper);
+    font-weight: 600;
+  }
+  .btn-primary::before {
+    background: var(--accent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    color: var(--accent-ink);
+  }
+
+  /* A soft pill. On hover it fills with ink the same way. */
+  .btn {
+    background: var(--surface-2);
+    font-weight: 500;
+  }
+  .btn::before {
+    background: var(--ink);
+  }
+  .btn:hover:not(:disabled) {
+    color: var(--paper);
+  }
+
+  .btn-danger {
+    background: var(--danger);
+    color: var(--paper);
+    font-weight: 600;
+  }
+
+  /* The quietest action: a word on a hairline; ink runs along it on hover. */
+  .link {
+    position: relative;
+    display: inline-block;
+    white-space: nowrap;
+  }
+  .link::before,
+  .link::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 -1px;
+    height: 1px;
+    background: var(--rule);
+  }
+  .link::after {
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: right;
+    transition: transform 300ms var(--ease-out-quint);
+  }
+  .link:hover:not(:disabled)::after {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+
+  .btn:disabled,
+  .btn-primary:disabled,
+  .link:disabled {
+    opacity: 0.35;
+  }
+
+  /* Fields are a soft filled pill. */
+  .field {
+    min-width: 0;
+    border: 0;
+    border-radius: var(--radius-inner);
+    background: var(--surface-2);
+    padding: 0.4375rem 0.75rem;
+    outline: none;
+  }
+  .masthead .field {
+    border-radius: 999px;
+    padding-inline: 1rem;
+  }
+  .masthead .field-select {
+    padding-right: 2.25rem;
+  }
+  .field:focus {
+    box-shadow: 0 0 0 2px var(--focus);
+  }
+  .field:disabled {
+    opacity: 0.35;
+  }
+
+  .field-select {
+    appearance: none;
+    max-width: 16rem;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23857f77' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+  }
+  .field-select option {
+    color: initial;
+  }
+
+  /* A soft track with a round thumb. */
+  .range {
+    appearance: none;
+    width: 10rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: linear-gradient(var(--surface-2), var(--surface-2)) center / 100% 0.375rem no-repeat;
+  }
+  .range::-webkit-slider-thumb {
+    appearance: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 50%;
+    background: var(--ink);
+    transition: transform var(--duration-state) var(--ease-out-quint);
+  }
+  .range:hover::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+  .range:disabled {
+    opacity: 0.35;
+  }
+
+  /* Things you can act on lean a little under the pointer. */
+  .lean {
+    transition: transform 280ms var(--ease-out-quint);
+  }
+  .lean:hover {
+    transform: translateX(4px);
+  }
+
+  /* Children of a page rise in one after another. The masthead has its own
+     entrance and never moves as a block. */
   .stagger > * {
     animation: var(--animate-rise);
   }
-  .stagger > :nth-child(2) { animation-delay: 50ms; }
-  .stagger > :nth-child(3) { animation-delay: 100ms; }
-  .stagger > :nth-child(4) { animation-delay: 150ms; }
-  .stagger > :nth-child(5) { animation-delay: 200ms; }
-  .stagger > :nth-child(6) { animation-delay: 250ms; }
-  .stagger > :nth-child(7) { animation-delay: 300ms; }
-  .stagger > :nth-child(8) { animation-delay: 340ms; }
-  .stagger > :nth-child(n + 9) { animation-delay: 380ms; }
+  .stagger > .masthead {
+    animation: none;
+  }
+  .stagger > :nth-child(2) { animation-delay: 60ms; }
+  .stagger > :nth-child(3) { animation-delay: 110ms; }
+  .stagger > :nth-child(4) { animation-delay: 160ms; }
+  .stagger > :nth-child(5) { animation-delay: 210ms; }
+  .stagger > :nth-child(6) { animation-delay: 260ms; }
+  .stagger > :nth-child(n + 7) { animation-delay: 310ms; }
 
   .fresh {
-    animation: fresh-ring 1.8s var(--ease-out-quint) both;
+    position: relative;
+    isolation: isolate;
+  }
+  .fresh::before {
+    content: "";
+    position: absolute;
+    inset: 0.25rem -0.625rem;
+    border-radius: var(--radius-inner);
+    background: var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    animation: fresh-wash 1.8s var(--ease-out-quint) both;
+    z-index: -1;
+  }
+}
+
+/* The window is 720 px at its narrowest: the margin column folds away and
+   the biggest type steps down, so the content keeps its measure. */
+@container page (max-width: 44rem) {
+  .hang-label,
+  .hang-body {
+    grid-column: 1 / -1;
+  }
+  .hang-label {
+    position: static;
+    padding-bottom: 0.25rem;
+  }
+  .title {
+    font-size: 4.25rem;
+  }
+  .figure {
+    font-size: 5.5rem;
+  }
+  .stat-large {
+    font-size: 3.25rem;
+  }
+  .masthead-hero {
+    min-height: 20rem;
   }
 }
 
@@ -277,13 +745,16 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
-  *::after {
+  *::after,
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
   }
-  .lift:hover,
+  .lean:hover,
   button:active:not(:disabled) {
     transform: none;
   }

@@ -1,7 +1,8 @@
 import type { ModelInfo, Progress } from "../lib/api";
 import { formatBytes, formatRam, percent } from "../lib/format";
+import { linkClass, primaryClass } from "./controls";
 
-const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
+export const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
   whisper: "Whisper",
   parakeet: "Parakeet",
   moonshine: "Moonshine",
@@ -9,15 +10,17 @@ const FAMILY_NAMES: Record<ModelInfo["family"], string> = {
   fixup: "Word fixer",
 };
 
-function Dots({ label, value, title }: { label: string; value: number; title: string }) {
+/** A scale of five soft ticks. */
+function Scale({ label, value, title }: { label: string; value: number; title: string }) {
   return (
     <div className="flex items-center gap-2" title={title} aria-label={`${label} ${value} of 5. ${title}`}>
-      <span className="w-16 text-xs text-zinc-500">{label}</span>
-      <span className="flex gap-1">
+      <span className="text-caption text-ink-3">{label}</span>
+      <span className="flex gap-0.5" aria-hidden>
         {[1, 2, 3, 4, 5].map((i) => (
           <span
             key={i}
-            className={`h-1.5 w-1.5 rounded-full ${i <= value ? "bg-zinc-100" : "bg-zinc-700"}`}
+            className={`h-1.5 w-4 origin-left rounded-full ${i <= value ? "bg-ink" : "bg-surface-2"}`}
+            style={{ animation: `grow-across 420ms var(--ease-out-expo) ${i * 45}ms both` }}
           />
         ))}
       </span>
@@ -33,10 +36,9 @@ export function speedTitle(model: ModelInfo, device = "this PC"): string {
   return `About ${time} s for a 5 s clip on ${device}${model.measured ? "" : ", estimated"}`;
 }
 
-const button =
-  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-40";
-const primary = `${button} bg-zinc-100 text-zinc-900 hover:bg-white`;
-const secondary = `${button} border border-white/10 text-zinc-200 hover:bg-white/5`;
+function Tag({ children }: { children: string }) {
+  return <span className="animate-pop rounded-full bg-accent px-2 text-caption font-semibold text-accent-ink">{children}</span>;
+}
 
 interface Props {
   model: ModelInfo;
@@ -48,7 +50,7 @@ interface Props {
   onCancel: () => void;
   onUse: () => void;
   onDelete: () => void;
-  /** Onboarding shows a lone card without the delete action. */
+  /** Onboarding shows a lone model without the delete action. */
   compact?: boolean;
   /** The chip speeds are for, such as "Apple M2 Pro". */
   device?: string;
@@ -61,56 +63,47 @@ export function ModelCard(p: Props) {
   const downloading = p.progress !== undefined;
 
   return (
-    <article
-      className={`surface lift rounded-xl p-4 ${p.active ? "ring-1 ring-accent/45" : ""}`}
-    >
-      <div className="flex items-start justify-between gap-4">
+    <article id={`model-${model.id}`} className="py-4">
+      <div className="flex items-start justify-between gap-6">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-semibold text-zinc-100">{model.name}</h3>
-            {model.family === "fixup" && model.installed && p.on && (
-              <span className="animate-pop rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-ink">
-                On
-              </span>
-            )}
-            {p.active && (
-              <span className="animate-pop rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-ink">
-                Active
-              </span>
-            )}
-            {p.loading && <span className="animate-breathe text-xs text-accent">Loading</span>}
+          <div className="flex min-h-6 flex-wrap items-center gap-x-2">
+            <h3 className="text-[1.125rem] leading-snug font-bold tracking-tight">{model.name}</h3>
+            {model.family === "fixup" && model.installed && p.on && <Tag>On</Tag>}
+            {p.active && <Tag>Active</Tag>}
+            {p.loading && <span className="animate-breathe text-caption text-accent-text">Loading</span>}
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            {FAMILY_NAMES[model.family]} · {formatBytes(model.sizeBytes)}
-            {model.ramMb > 0 && ` · ${formatRam(model.ramMb)}`} · {model.languagesLabel}
+          <p className="mt-0.5 flex flex-wrap gap-x-3 text-caption text-ink-2 tabular-nums">
+            {p.compact && <span>{FAMILY_NAMES[model.family]}</span>}
+            <span>{formatBytes(model.sizeBytes)}</span>
+            {model.ramMb > 0 && <span>{formatRam(model.ramMb)}</span>}
+            <span>{model.languagesLabel}</span>
           </p>
-          {model.note && <p className="mt-1 text-xs text-amber-300/80">{model.note}</p>}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-4">
           {downloading ? (
-            <button className={secondary} onClick={p.onCancel}>
+            <button className={linkClass} onClick={p.onCancel}>
               Cancel
             </button>
           ) : !model.installed ? (
-            <button className={primary} onClick={p.onDownload}>
+            <button className={primaryClass} onClick={p.onDownload}>
               Download
             </button>
           ) : (
             <>
-              {!p.active && model.family !== "fixup" && (
-                <button className={primary} onClick={p.onUse} disabled={p.loading}>
-                  Use
-                </button>
-              )}
               {!p.compact && (
                 <button
-                  className={secondary}
+                  className={linkClass}
                   onClick={p.onDelete}
                   disabled={p.active || p.loading}
                   title={p.active ? "Switch to another model before deleting this one" : undefined}
                 >
                   Delete
+                </button>
+              )}
+              {!p.active && model.family !== "fixup" && (
+                <button className={primaryClass} onClick={p.onUse} disabled={p.loading}>
+                  Use
                 </button>
               )}
             </>
@@ -119,27 +112,33 @@ export function ModelCard(p: Props) {
       </div>
 
       {model.accuracy > 0 && (
-        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1">
-          <Dots label="Accuracy" value={model.accuracy} title="Accuracy on English" />
-          <Dots label="Speed" value={model.speed} title={speedTitle(model, p.device)} />
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+          <Scale label="Accuracy" value={model.accuracy} title="Accuracy on English" />
+          <Scale label="Speed" value={model.speed} title={speedTitle(model, p.device)} />
         </div>
       )}
 
+      {model.note && <p className="mt-2 max-w-[68ch] text-caption text-accent-text">{model.note}</p>}
+
       {downloading && p.progress && (
         <div className="mt-3 animate-pop">
-          <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
               className="h-full origin-left rounded-full bg-accent transition-transform duration-300 ease-out"
               style={{ transform: `scaleX(${percent(p.progress.done, p.progress.total) / 100})` }}
             />
           </div>
-          <p className="mt-1.5 text-xs text-zinc-500">
+          <p className="mt-1.5 text-caption text-ink-2 tabular-nums">
             {formatBytes(p.progress.done)} of {formatBytes(p.progress.total)}
           </p>
         </div>
       )}
 
-      {p.error && <p key={p.error} className="mt-3 animate-shake text-xs text-red-300">{p.error}</p>}
+      {p.error && (
+        <p key={p.error} className="mt-2 animate-shake text-caption text-danger">
+          {p.error}
+        </p>
+      )}
     </article>
   );
 }

@@ -98,12 +98,14 @@ export interface Insights {
 }
 
 export type OverlayPosition = "bottomCentre" | "topCentre" | "bottomRight";
+export type ThemeChoice = "light" | "dark" | "system";
 
 /** Mirrors settings.rs. Hotkeys are key names such as ["ctrl", "win"]. */
 export interface Settings {
   launchAtLogin: boolean;
   showInTray: boolean;
   closeToTray: boolean;
+  theme: ThemeChoice;
   mainHotkey: string[];
   toggleHotkeyEnabled: boolean;
   toggleHotkey: string[];

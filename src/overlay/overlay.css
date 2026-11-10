@@ -1,26 +1,21 @@
 /* Same interface font as the main window, bundled for offline use. */
 @font-face {
-  font-family: "Onest";
-  src: url("../assets/fonts/Onest-Variable.ttf") format("truetype");
+  font-family: "Hanken Grotesk";
+  src: url("../assets/fonts/HankenGrotesk-Variable.ttf") format("truetype");
   font-weight: 100 900;
   font-display: block;
 }
 
-/* The floating pill (spec 6.4). Dark only. Transforms and opacity only, so
-   animation never triggers layout. Sizes match `overlay/window.rs`. */
+/* The floating orb. It looks the same whatever the window's theme, because it
+   sits over other apps. The ball of dots is drawn on a canvas (orb.ts); this page
+   only places it and fades it. Nothing leaves the ball. The box matches
+   `overlay/window.rs`. */
 
 :root {
-  /* Setting "Wave colour"; the default is the app's amber. */
-  --wave: #f6b83d;
   --text: oklch(0.93 0.006 78);
-  --muted: oklch(0.72 0.012 74);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-quart: cubic-bezier(0.5, 0, 0.75, 0);
-  /* Compact capsule for every phase but the error line. */
-  --h: 32px;
-  --compact: 112px;
-  --wide: 176px;
 }
 
 html,
@@ -37,186 +32,76 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "Onest", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: "Hanken Grotesk", "Helvetica Neue", Arial, system-ui, sans-serif;
 }
 
 .pill {
   position: relative;
-  width: var(--wide);
-  height: var(--h);
+  width: 176px;
+  height: 84px;
   opacity: 0;
-  transform: translateY(6px) scale(0.9);
-  will-change: opacity, transform;
+  transition: opacity 170ms var(--ease-in-quart);
 }
 
-/* Appear: rises a few pixels out of the taskbar, 200 ms expo out. */
 .pill.shown {
   opacity: 1;
-  transform: none;
-  transition:
-    opacity 160ms var(--ease-out-quint),
-    transform 200ms var(--ease-out-expo);
+  transition: opacity 120ms var(--ease-out-quint);
 }
 
-/* Disappear: 140 ms ease in, sinking back. */
-.pill.leaving {
-  opacity: 0;
-  transform: translateY(3px) scale(0.96);
-  transition:
-    opacity 140ms var(--ease-in-quart),
-    transform 140ms var(--ease-in-quart);
-}
-
-/* The capsule is two round caps and a middle that slide and stretch
-   between the compact and the wide size, so its width changes through
-   transforms alone. All three share one opaque fill so they read as one
-   shape; the shadow and hairline edge come from a filter over the group. */
-.shell {
-  position: absolute;
-  inset: 0;
-  filter: drop-shadow(0 0 0.6px oklch(1 0.01 80 / 0.28)) drop-shadow(0 5px 9px oklch(0 0 0 / 0.42));
-}
-
-.cap,
-.mid {
+/* 84 px square, centred: the ball's size is set inside it. */
+#orb {
   position: absolute;
   top: 0;
-  height: var(--h);
-  background: linear-gradient(180deg, oklch(0.245 0.009 72), oklch(0.185 0.007 70));
-  transition: transform 260ms var(--ease-out-quint);
+  left: 46px;
+  width: 84px;
+  height: 84px;
+  transition: opacity 180ms var(--ease-out-quint);
 }
 
-.cap {
-  width: var(--h);
-  border-radius: 50%;
+.pill[data-phase="error"] #orb {
+  opacity: 0;
 }
 
-.cap.start {
-  left: 0;
-  transform: translateX(calc((var(--wide) - var(--compact)) / 2));
-}
-
-.cap.end {
-  right: 0;
-  transform: translateX(calc((var(--compact) - var(--wide)) / 2));
-}
-
-.mid {
-  left: calc(var(--h) / 2);
-  right: calc(var(--h) / 2);
-  /* (compact - h) / (wide - h) */
-  transform: scaleX(0.5556);
-}
-
-.pill[data-phase="error"] .cap,
-.pill[data-phase="error"] .mid {
-  transform: none;
-}
-
-.view {
+/* An orb cannot hold a sentence, so the error line gets a small pill. */
+.capsule {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 32px;
+  margin-top: -16px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 16px;
+  background: oklch(0.17 0.008 70);
+  box-shadow: 0 0 0 0.5px oklch(1 0.01 80 / 0.3);
   opacity: 0;
-  transition: opacity 140ms var(--ease-out-quint);
+  transform: scale(0.92);
+  transition:
+    opacity 160ms var(--ease-out-quint),
+    transform 300ms var(--ease-out-expo);
 }
 
-.pill[data-phase="recording"] .recording,
-.pill[data-phase="processing"] .processing,
-.pill[data-phase="done"] .done,
-.pill[data-phase="cancelled"] .cancelled,
-.pill[data-phase="error"] .error {
+.pill[data-phase="error"] .capsule {
   opacity: 1;
-}
-
-.bars {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 18px;
-}
-
-/* Each bar is 18 px tall and scaled down, so a level change is a
-   transform, never a layout. The fill runs light at the top to deep at
-   the bottom, and its hue drifts from a deeper amber on the left to gold
-   on the right (`--shift`, set per bar). */
-.bar {
-  --shift: 0;
-  width: 3px;
-  height: 18px;
-  border-radius: 2px;
-  background: linear-gradient(
-    180deg,
-    oklch(from var(--wave) calc(l + 0.09) calc(c * 0.8) calc(h + 6 + var(--shift))),
-    oklch(from var(--wave) l c calc(h + var(--shift))) 55%,
-    oklch(from var(--wave) calc(l - 0.12) calc(c * 1.1) calc(h - 18 + var(--shift)))
-  );
-  transform: scaleY(0.1667);
-  will-change: transform, opacity;
-}
-
-/* Transcribing: the bars settle into a row of dots and a soft hump runs
-   across them, left to right. */
-.thinking .bar {
-  opacity: 0.35;
-  animation: think 1100ms var(--ease-out-quint) infinite;
-}
-
-@keyframes think {
-  0%,
-  55%,
-  100% {
-    opacity: 0.35;
-    transform: scaleY(0.1667);
-  }
-  22% {
-    opacity: 1;
-    transform: scaleY(0.4444);
-  }
-}
-
-.glyph {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.tick {
-  stroke: var(--wave);
-}
-
-.cross {
-  stroke: var(--muted);
+  transform: none;
 }
 
 .label {
   color: var(--text);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
-/* Reduced motion: every change is instant. The wave still shows the level
-   (main.ts drops the ripple and sway), and Transcribing is a still row of
-   dots. */
+/* Reduced motion: every change is instant. main.ts stops the pattern and the
+   breathing; the ball still follows the voice in size. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation: none !important;
     transition-duration: 0.01ms !important;
-  }
-  .pill,
-  .pill.leaving {
-    transform: none;
-  }
-  .thinking .bar {
-    opacity: 0.6;
   }
 }

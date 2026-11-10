@@ -1,59 +1,108 @@
 import { useEffect, useState } from "react";
+import { Bars } from "../components/Bars";
 import { CountUp } from "../components/CountUp";
+import { linkClass } from "../components/controls";
 import { Empty } from "../components/Empty";
+import { Hang, Title } from "../components/Page";
 import { TranscriptItem } from "../components/TranscriptItem";
 import { api, events, type HomeSummary } from "../lib/api";
-import { plural } from "../lib/format";
+import { dateline, plural, posterNumber, shortDate } from "../lib/format";
+import { subscribeInsights, useInsights } from "../store/insights";
 import { useHotkeyText } from "../store/settings";
 
-function Stat({ label, value, format }: { label: string; value: number; format: (n: number) => string }) {
+const STREAK_TICKS = 14;
+
+/** The last summary seen, so coming back to Home is complete from its first frame. */
+let lastSummary: HomeSummary | null = null;
+
+/** The streak as a second big number over a run of filled pills. */
+function Streak({ days }: { days: number }) {
   return (
-    <div className="surface rounded-xl px-5 py-4">
-      <p className="stat-label">{label}</p>
-      <p className="stat-value mt-2">
-        <CountUp value={value} format={format} />
+    <div className="flex flex-col items-end @max-[44rem]/page:items-start">
+      <p className="stat-large">
+        <CountUp value={days} format={(n) => plural(n, "day", "days")} />
       </p>
+      <span className="mt-3 flex gap-1" aria-hidden>
+        {Array.from({ length: STREAK_TICKS }, (_, i) => (
+          <span
+            key={i}
+            className={`h-2.5 w-2.5 origin-bottom rounded-full ${i < days ? "bg-ink" : "bg-surface-2"}`}
+            style={{ animation: `pop-in 420ms var(--ease-out-quint) ${320 + i * 24}ms both` }}
+          />
+        ))}
+      </span>
+      <span className="mt-2 font-bold">Streak</span>
     </div>
   );
 }
 
 export function Home({ onSeeHistory }: { onSeeHistory: () => void }) {
-  const [summary, setSummary] = useState<HomeSummary | null>(null);
+  const [summary, setSummary] = useState<HomeSummary | null>(lastSummary);
   const hotkey = useHotkeyText();
+  const perDay = useInsights((s) => s.data?.wordsPerDay);
+  useEffect(subscribeInsights, []);
 
   useEffect(() => {
-    const load = () => void api.homeSummary().then(setSummary);
+    const load = () =>
+      void api.homeSummary().then((s) => {
+        lastSummary = s;
+        setSummary(s);
+      });
     load();
     const unlisten = events.transcriptAdded(load);
     return () => void unlisten.then((f) => f());
   }, []);
 
-  if (!summary) return null;
-
   return (
     <section className="stagger page">
-      <h1 className="page-title">Home</h1>
+      <Title
+        hero
+        tone="amber"
+        aside={<p className="font-medium">{dateline()}</p>}
+        below={
+          <div className="mt-8 flex animate-rise flex-wrap items-end justify-between gap-x-8 gap-y-4">
+            <div>
+              <p className="figure">
+                <CountUp value={summary?.wordsThisWeek ?? 0} format={posterNumber} />
+              </p>
+              <p className="mt-3 font-bold">Words this week</p>
+            </div>
+            <Streak days={summary?.streakDays ?? 0} />
+          </div>
+        }
+        foot={
+          <Bars
+            className="h-14 px-5"
+            values={(perDay ?? []).map((d) => d.words)}
+            hot={(perDay?.length ?? 0) - 1}
+            titles={perDay?.map((d) => `${shortDate(d.date)}, ${plural(d.words, "word", "words")}`)}
+          />
+        }
+      >
+        Home
+      </Title>
 
-      <div className="stagger mt-8 grid grid-cols-2 gap-4">
-        <Stat label="Words this week" value={summary.wordsThisWeek} format={(n) => n.toLocaleString("en-US")} />
-        <Stat label="Streak" value={summary.streakDays} format={(n) => plural(n, "day", "days")} />
-      </div>
-
-      <div className="mt-12 flex items-baseline justify-between">
-        <h2 className="section-title">Recent</h2>
-        {summary.recent.length > 0 && (
-          <button onClick={onSeeHistory} className="text-xs text-zinc-400 hover:text-zinc-200">
-            See all
-          </button>
-        )}
-      </div>
-      <div className="stagger mt-4 flex flex-col gap-3">
-        {summary.recent.length === 0 ? (
-          <Empty>Hold {hotkey}, speak, then let go.</Empty>
-        ) : (
-          summary.recent.map((r) => <TranscriptItem key={r.id} row={r} />)
-        )}
-      </div>
+      <Hang
+        label="Recent"
+        note={
+          summary && summary.recent.length > 0 && (
+            <button onClick={onSeeHistory} className={`${linkClass} text-ink-2`}>
+              See all
+            </button>
+          )
+        }
+      >
+        {summary &&
+          (summary.recent.length === 0 ? (
+            <Empty>{`Hold ${hotkey}, speak, then let go.`}</Empty>
+          ) : (
+            <div className="stagger rows">
+              {summary.recent.map((r, i) => (
+                <TranscriptItem key={r.id} row={r} lead={i === 0} />
+              ))}
+            </div>
+          ))}
+      </Hang>
     </section>
   );
 }

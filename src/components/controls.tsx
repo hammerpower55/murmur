@@ -1,8 +1,9 @@
 // Small form controls shared by Settings, Dictionary and Snippets.
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Hang } from "./Page";
 
-/** Segmented tabs with a pill that slides to the selected one. */
+/** Words in a row with a soft pill behind the selected one that slides across. */
 export function Tabs<T extends string>({
   tabs,
   value,
@@ -13,25 +14,25 @@ export function Tabs<T extends string>({
   onChange: (t: T) => void;
 }) {
   const row = useRef<HTMLDivElement>(null);
-  const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
+  const [mark, setMark] = useState<{ x: number; w: number } | null>(null);
   const [placed, setPlaced] = useState(false);
   useLayoutEffect(() => {
     const el = row.current?.querySelector<HTMLElement>(`[data-tab="${value}"]`);
-    if (el) setPill({ x: el.offsetLeft, w: el.offsetWidth });
+    if (el) setMark({ x: el.offsetLeft, w: el.offsetWidth });
   }, [value]);
   useLayoutEffect(() => {
-    if (pill && !placed) requestAnimationFrame(() => setPlaced(true));
-  }, [pill, placed]);
+    if (mark && !placed) requestAnimationFrame(() => setPlaced(true));
+  }, [mark, placed]);
   return (
-    <div ref={row} role="tablist" className="relative flex items-center gap-1">
-      {pill && (
+    <div ref={row} role="tablist" className="relative flex w-fit items-center gap-1 rounded-full bg-surface p-1">
+      {mark && (
         <span
           aria-hidden
-          className="absolute top-0 left-0 h-full rounded-md bg-white/8 shadow-[inset_0_1px_0_oklch(1_0_0/0.05)]"
+          className="absolute top-1 bottom-1 left-0 rounded-full bg-surface-2"
           style={{
-            width: pill.w,
-            transform: `translateX(${pill.x}px)`,
-            transition: placed ? "transform 380ms var(--ease-out-quint), width 380ms var(--ease-out-quint)" : "none",
+            width: mark.w,
+            transform: `translateX(${mark.x}px)`,
+            transition: placed ? "transform 340ms var(--ease-out-quint), width 340ms var(--ease-out-quint)" : "none",
           }}
         />
       )}
@@ -42,9 +43,7 @@ export function Tabs<T extends string>({
           data-tab={id}
           aria-selected={value === id}
           onClick={() => onChange(id)}
-          className={`relative rounded-md px-3 py-1.5 text-sm ${
-            value === id ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
-          }`}
+          className={`relative rounded-full px-4 py-1.5 ${value === id ? "font-semibold text-ink" : "text-ink-2 hover:text-ink"}`}
         >
           {label}
         </button>
@@ -55,27 +54,23 @@ export function Tabs<T extends string>({
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="mt-10">
-      <h2 className="section-title">{title}</h2>
-      <div className="mt-4 divide-y divide-white/6 surface rounded-xl">
-        {children}
-      </div>
-    </section>
+    <Hang label={title} className="mt-8 first-of-type:mt-0">
+      <div className="rows">{children}</div>
+    </Hang>
   );
 }
 
 /** One setting per row: label on the left, control on the right. */
 export function Row({ label, children, htmlFor }: { label: string; children: ReactNode; htmlFor?: string }) {
   return (
-    <div className="flex min-h-14 items-center justify-between gap-6 px-5 py-3 transition-colors duration-200 hover:bg-white/[0.025]">
-      <label htmlFor={htmlFor} className="text-sm text-zinc-100">
-        {label}
-      </label>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+    <div className="flex min-h-12 items-center justify-between gap-6 py-2">
+      <label htmlFor={htmlFor}>{label}</label>
+      <div className="flex shrink-0 items-center gap-3">{children}</div>
     </div>
   );
 }
 
+/** A pill with a round knob that slides across. */
 export function Toggle({
   checked,
   onChange,
@@ -95,30 +90,24 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`group/toggle relative h-6 w-10 rounded-full shadow-[inset_0_1px_2px_oklch(0_0_0/0.35)] disabled:opacity-40 ${
-        checked ? "bg-accent" : "bg-zinc-700"
+      className={`relative h-6 w-10 shrink-0 rounded-full disabled:opacity-35 ${
+        checked ? "bg-[var(--switch-on)]" : "bg-surface-2"
       }`}
     >
       <span
-        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full shadow-[0_1px_2px_oklch(0_0_0/0.4)] transition-[transform,background-color,width] duration-300 ease-[var(--ease-out-quint)] group-active/toggle:w-6 ${
-          checked ? "translate-x-4 bg-accent-ink group-active/toggle:translate-x-3" : "bg-zinc-200"
+        className={`absolute top-1 left-1 h-4 w-4 rounded-full transition-[transform,background-color] duration-300 ease-[var(--ease-out-quint)] ${
+          checked ? "translate-x-4 bg-[var(--switch-dot)]" : "bg-ink-2"
         }`}
       />
     </button>
   );
 }
 
-export const selectClass =
-  "max-w-64 rounded-md border border-white/10 bg-zinc-900 px-2.5 py-1.5 text-sm text-zinc-100 focus:border-zinc-400 focus:outline-none disabled:opacity-40";
-
-export const buttonClass =
-  "rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5 disabled:opacity-40";
-
-export const primaryClass =
-  "rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 shadow-[0_1px_2px_oklch(0_0_0/0.3)] hover:bg-white disabled:opacity-40";
-
-export const inputClass =
-  "min-w-0 rounded-md border border-white/10 bg-zinc-900 px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-400 focus:outline-none";
+export const selectClass = "field field-select";
+export const buttonClass = "btn";
+export const primaryClass = "btn-primary";
+export const linkClass = "link";
+export const inputClass = "field";
 
 export function Slider({
   value,
@@ -150,9 +139,9 @@ export function Slider({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-40 accent-[var(--color-accent)] disabled:opacity-40"
+        className="range"
       />
-      <span className="w-12 text-right text-sm text-zinc-400 tabular-nums">{format(value)}</span>
+      <span className="w-10 text-right text-ink-2 tabular-nums">{format(value)}</span>
     </>
   );
 }
@@ -162,10 +151,7 @@ export function Keys({ names, label }: { names: string[]; label: (n: string) => 
   return (
     <span className="flex gap-1">
       {names.map((n) => (
-        <kbd
-          key={n}
-          className="rounded border border-white/15 bg-zinc-800 px-1.5 py-0.5 font-sans text-xs text-zinc-200"
-        >
+        <kbd key={n} className="rounded-lg bg-surface-2 px-2 py-0.5 font-sans text-caption font-semibold">
           {label(n)}
         </kbd>
       ))}

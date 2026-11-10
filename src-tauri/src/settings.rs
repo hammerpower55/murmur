@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Manager, Theme, Wry};
 use tauri_plugin_store::{Store, StoreExt};
 
 use crate::hotkey::keys;
@@ -30,6 +30,27 @@ pub enum OverlayPosition {
     BottomRight,
 }
 
+/// The main window's theme. The overlay stays dark whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemeChoice {
+    Light,
+    Dark,
+    System,
+}
+
+impl ThemeChoice {
+    /// What to give the window: its title bar and its page's
+    /// prefers-color-scheme both follow this. None follows the system.
+    pub fn window_theme(self) -> Option<Theme> {
+        match self {
+            Self::Light => Some(Theme::Light),
+            Self::Dark => Some(Theme::Dark),
+            Self::System => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -37,6 +58,7 @@ pub struct Settings {
     pub launch_at_login: bool,
     pub show_in_tray: bool,
     pub close_to_tray: bool,
+    pub theme: ThemeChoice,
     // Hotkeys: key names from hotkey::keys, e.g. ["ctrl", "win"].
     pub main_hotkey: Vec<String>,
     pub toggle_hotkey_enabled: bool,
@@ -57,7 +79,7 @@ pub struct Settings {
     // Overlay
     pub overlay_enabled: bool,
     pub overlay_position: OverlayPosition,
-    /// The overlay wave's base colour (stored as waveColour). The older
+    /// The overlay orb's base colour (stored as waveColour). The older
     /// overlayColour key held white bars and is left unread, so earlier
     /// installs pick up the amber default.
     pub wave_colour: String,
@@ -91,6 +113,7 @@ impl Default for Settings {
             launch_at_login: false,
             show_in_tray: true,
             close_to_tray: true,
+            theme: ThemeChoice::Dark,
             main_hotkey: vec!["ctrl".into(), "win".into()],
             toggle_hotkey_enabled: false,
             toggle_hotkey: vec!["ctrl".into(), "shift".into(), "space".into()],
@@ -158,7 +181,7 @@ impl Settings {
             bail!("Volume must be between 0 and 100.");
         }
         if !is_colour(&self.wave_colour) {
-            bail!("Pick a wave colour like #f6b83d.");
+            bail!("Pick an orb colour like #f6b83d.");
         }
         let lang = self.language.as_str();
         if !(lang == "auto"
@@ -235,6 +258,15 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
     s.save().context("could not save settings")
 }
 
+/// Gives the main window its theme.
+pub fn apply_theme(app: &AppHandle, theme: ThemeChoice) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(err) = window.set_theme(theme.window_theme()) {
+            log::warn!("could not set the theme: {err}");
+        }
+    }
+}
+
 /// A copy of the live settings.
 pub fn current(app: &AppHandle) -> Settings {
     app.try_state::<Shared>()
@@ -281,6 +313,7 @@ mod tests {
     fn defaults_follow_the_spec() {
         let s = Settings::default();
         assert_eq!(s.main_hotkey, ["ctrl", "win"]);
+        assert_eq!(s.theme, ThemeChoice::Dark);
         assert!(!s.toggle_hotkey_enabled);
         assert_eq!(s.toggle_hotkey, ["ctrl", "shift", "space"]);
         assert_eq!(s.language, "en");
@@ -330,6 +363,17 @@ mod tests {
         assert_eq!(s.wave_colour, d.wave_colour);
         assert_eq!(s.main_hotkey, d.main_hotkey);
         assert_eq!(s.input_gain, 150);
+    }
+
+    #[test]
+    fn theme_is_read_by_name_and_a_bad_one_falls_back() {
+        let light = from_stored(&stored(json!({ "theme": "light" })));
+        assert_eq!(light.theme, ThemeChoice::Light);
+        assert_eq!(light.theme.window_theme(), Some(Theme::Light));
+        let system = from_stored(&stored(json!({ "theme": "system" })));
+        assert_eq!(system.theme.window_theme(), None);
+        let bad = from_stored(&stored(json!({ "theme": "sepia" })));
+        assert_eq!(bad.theme, ThemeChoice::Dark);
     }
 
     #[test]

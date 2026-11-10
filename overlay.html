@@ -8,28 +8,8 @@
 
   <body>
     <div class="pill" id="pill" data-phase="hidden">
-      <div class="shell" aria-hidden="true">
-        <i class="cap start"></i>
-        <i class="mid"></i>
-        <i class="cap end"></i>
-      </div>
-      <div class="view recording">
-        <div class="bars" id="bars"></div>
-      </div>
-      <div class="view processing">
-        <div class="bars thinking" id="thinking"></div>
-      </div>
-      <div class="view done">
-        <svg class="glyph tick" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 12.5l4.5 4.5L19 7.5" />
-        </svg>
-      </div>
-      <div class="view cancelled">
-        <svg class="glyph cross" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 7l10 10M17 7L7 17" />
-        </svg>
-      </div>
-      <div class="view error">
+      <canvas id="orb" aria-hidden="true"></canvas>
+      <div class="capsule">
         <span class="label">Could not transcribe</span>
       </div>
     </div>
